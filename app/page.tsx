@@ -249,9 +249,11 @@ export default function Home() {
   if (!preferredLanguage) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-[#020817] p-6 relative overflow-hidden">
-        <div
+        <motion.div
           aria-hidden
-          className="pointer-events-none absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-br from-amber-400/20 via-amber-500/10 to-indigo-500/20 blur-[120px]"
+          animate={{ scale: [1, 1.2, 1], opacity: [0.5, 0.8, 0.5] }}
+          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[30rem] w-[30rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-br from-amber-500/20 via-amber-400/10 to-indigo-500/20 blur-[120px]"
         />
         
         <motion.div 
@@ -306,14 +308,30 @@ export default function Home() {
           backgroundSize: "40px 40px",
         }}
       />
-      <div
+      <motion.div
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-br from-amber-400/10 via-amber-500/5 to-indigo-500/10 blur-[100px]"
+        animate={{ 
+          scale: [1, 1.2, 1],
+          opacity: [0.3, 0.6, 0.3],
+          rotate: [0, 90, 0]
+        }}
+        transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+        className="pointer-events-none absolute left-[20%] top-[20%] h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/20 blur-[120px]"
+      />
+      <motion.div
+        aria-hidden
+        animate={{ 
+          scale: [1, 1.5, 1],
+          opacity: [0.2, 0.5, 0.2],
+          rotate: [0, -90, 0]
+        }}
+        transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+        className="pointer-events-none absolute right-[20%] bottom-[20%] h-96 w-96 translate-x-1/2 translate-y-1/2 rounded-full bg-indigo-500/20 blur-[120px]"
       />
 
       {/* ─── Header ─── */}
       <header className="flex-shrink-0 w-full px-6 py-4 flex justify-between items-center bg-[#020817]/80 backdrop-blur border-b border-white/5 z-10">
-        <span className="text-sm font-bold tracking-widest text-amber-400">
+        <span className="text-sm font-bold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-amber-600 drop-shadow-[0_0_10px_rgba(251,191,36,0.3)]">
           ✦ SENURA
         </span>
         <div className="flex items-center gap-3">
@@ -405,7 +423,7 @@ export default function Home() {
         <div className="max-w-3xl mx-auto flex flex-col gap-3">
           
           {showQuickReplies && (
-            <div className="flex gap-2 overflow-x-auto scrollbar-hide px-1 pb-1">
+            <div className="flex gap-2 overflow-x-auto scrollbar-premium px-1 pb-1">
               {(LOCALIZED_QUICK_REPLIES[preferredLanguage] || LOCALIZED_QUICK_REPLIES.english).map(reply => (
                 <button
                   key={reply}
@@ -425,7 +443,7 @@ export default function Home() {
               onChange={(e) => setInputValue(e.target.value)}
               disabled={isTyping}
               placeholder="Type your message..."
-              className="w-full bg-white/10 border border-white/10 rounded-2xl pl-5 pr-12 py-3.5 text-white text-sm placeholder-slate-400 focus:outline-none focus:border-amber-400/50 transition-all backdrop-blur disabled:opacity-50"
+              className="w-full bg-white/10 border border-white/10 rounded-2xl pl-5 pr-12 py-3.5 text-white text-sm placeholder-slate-400 focus:outline-none focus:border-amber-400/50 focus:shadow-[0_0_20px_rgba(251,191,36,0.15)] transition-all backdrop-blur disabled:opacity-50"
             />
             <button 
               type="submit"
