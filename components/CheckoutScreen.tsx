@@ -2,6 +2,8 @@
 
 import { motion } from "framer-motion";
 import { useState } from "react";
+import { fireConfetti } from "./Confetti";
+import GreetingCardPreview from "./GreetingCardPreview";
 
 const sriLankaLocations: Record<string, string[]> = {
   "Colombo": ["Colombo 01", "Colombo 02", "Colombo 03", "Colombo 04", "Colombo 05", "Colombo 06", "Colombo 07", "Colombo 08", "Colombo 09", "Colombo 10", "Colombo 11", "Colombo 12", "Colombo 13", "Colombo 14", "Colombo 15", "Dehiwala", "Mount Lavinia", "Nugegoda", "Maharagama", "Battaramulla", "Rajagiriya", "Kotte", "Moratuwa"],
@@ -138,7 +140,10 @@ export default function CheckoutScreen({
       setSubmitted(true);
       onConfirm(formData);
 
-      window.location.href = data.url;
+      fireConfetti();
+      setTimeout(() => {
+        window.location.href = data.url;
+      }, 1500);
     } catch (err: any) {
       setError(err.message || "Failed to complete order. Please try again.");
     } finally {
@@ -309,6 +314,12 @@ export default function CheckoutScreen({
               />
             </div>
           </div>
+
+          <GreetingCardPreview 
+            sender={formData.senderName} 
+            recipient={formData.recipientName} 
+            message={formData.giftMessage} 
+          />
 
           {/* ─── Error ─── */}
           {error && (

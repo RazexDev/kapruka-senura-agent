@@ -146,8 +146,7 @@ export async function POST(request: NextRequest) {
             date: preferredDeliveryDate
           },
           sender: {
-            name: senderName,
-            email: senderEmail
+            name: senderName
           },
           gift_message: giftMessage || ""
         }

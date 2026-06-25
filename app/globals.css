@@ -24,3 +24,20 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Premium Scrollbar */
+.scrollbar-premium::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.scrollbar-premium::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+.scrollbar-premium::-webkit-scrollbar-thumb {
+  background: rgba(251, 191, 36, 0.3); /* amber-400 with opacity */
+  border-radius: 10px;
+}
+.scrollbar-premium::-webkit-scrollbar-thumb:hover {
+  background: rgba(251, 191, 36, 0.6);
+}

@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
+import { fireConfetti } from "./Confetti";
 
 type ProductSummary = {
   name: string;
@@ -122,6 +123,7 @@ export default function RevealScreen({
         type="button"
         disabled={isAdded}
         onClick={() => {
+          fireConfetti();
           onAddToCart(current);
           setIsAdded(true);
           setTimeout(() => setIsAdded(false), 2200);

@@ -25,12 +25,39 @@ type CartItem = {
   quantity: number;
 };
 
-const QUICK_REPLIES = [
-  "Amma", "Thaththa", "Partner", "Best Friend",
-  "Birthday 🎂", "Anniversary 💛", "Avurudu 🌸",
-  "Homebody 🏡", "Foodie 🍛", "Trendsetter ✨",
-  "Under Rs. 2,000", "Rs. 2,000–5,000", "Go all out 💎"
-];
+const LOCALIZED_QUICK_REPLIES: Record<string, string[]> = {
+  english: [
+    "Amma", "Thaththa", "Partner", "Best Friend",
+    "Birthday 🎂", "Anniversary 💛", "Avurudu 🌸",
+    "Homebody 🏡", "Foodie 🍛", "Trendsetter ✨",
+    "Under Rs. 2,000", "Rs. 2,000–5,000", "Go all out 💎"
+  ],
+  sinhala: [
+    "අම්මා", "තාත්තා", "සහකරු/සහකාරිය", "හොඳම යාළුවා",
+    "උපන්දිනයක් 🎂", "සංවත්සරයක් 💛", "අවුරුදු 🌸",
+    "ගෙදරට කැමති 🏡", "කෑමට කැමති 🍛", "විලාසිතා 🎨",
+    "රු. 2,000ට අඩු", "රු. 2,000–5,000", "උපරිම මිලට 💎"
+  ],
+  singlish: [
+    "Amma", "Thaththa", "Partner", "Best Friend",
+    "Birthday 🎂", "Anniversary 💛", "Avurudu 🌸",
+    "Homebody 🏡", "Foodie 🍛", "Trendsetter ✨",
+    "Rs. 2,000 ta adu", "Rs. 2,000–5,000", "Go all out 💎"
+  ],
+  tanglish: [
+    "Amma", "Appa", "Partner", "Best Friend",
+    "Birthday 🎂", "Anniversary 💛", "Avurudu 🌸",
+    "Homebody 🏡", "Foodie 🍛", "Trendsetter ✨",
+    "Rs. 2,000 kku kuraivaha", "Rs. 2,000–5,000", "Go all out 💎"
+  ]
+};
+
+const LOCALIZED_GREETINGS: Record<string, string> = {
+  english: "Hi, I'm Senura ✦ Tell me about who you're gifting to and I'll find the perfect match!",
+  sinhala: "ආයුබෝවන්! මම සෙනුර ✦ ඔයා තෑග්ගක් දෙන්න හිතන් ඉන්නේ කාටද කියලා මට කියන්න, මම ගැලපෙනම එක හොයලා දෙන්නම්!",
+  singlish: "Ayubowan! Mama Senura ✦ Oyata kaatada gift ekak denna one? Kiyanna, mama hodama eka hoyala dennam!",
+  tanglish: "Vannakkam! Naan Senura ✦ Ungalukku yaarkku gift panna venum? Sollunga, naan best gift kandupidichu tharen!"
+};
 
 function ChatBubble({ role, children, hint, noBubble }: { role: 'user'|'senura', children: React.ReactNode, hint?: string, noBubble?: boolean }) {
   const isUser = role === 'user';
@@ -62,15 +89,36 @@ function ChatBubble({ role, children, hint, noBubble }: { role: 'user'|'senura',
 }
 
 export default function Home() {
-  const [messages, setMessages] = useState<Message[]>([
-    { id: '1', role: 'senura', type: 'text', content: "Hi, I'm Senura ✦ Tell me about who you're gifting to and I'll find the perfect match!" }
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [preferredLanguage, setPreferredLanguage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [finalProfile, setFinalProfile] = useState<any>({});
+  const [isLoaded, setIsLoaded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const savedMessages = localStorage.getItem('senura_messages');
+    const savedLanguage = localStorage.getItem('senura_language');
+    const savedCart = localStorage.getItem('senura_cart');
+    const savedProfile = localStorage.getItem('senura_profile');
+
+    if (savedMessages) setMessages(JSON.parse(savedMessages));
+    if (savedLanguage) setPreferredLanguage(savedLanguage);
+    if (savedCart) setCart(JSON.parse(savedCart));
+    if (savedProfile) setFinalProfile(JSON.parse(savedProfile));
+    
+    setIsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    localStorage.setItem('senura_messages', JSON.stringify(messages));
+    localStorage.setItem('senura_language', preferredLanguage);
+    localStorage.setItem('senura_cart', JSON.stringify(cart));
+    localStorage.setItem('senura_profile', JSON.stringify(finalProfile));
+  }, [messages, preferredLanguage, cart, finalProfile, isLoaded]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -184,10 +232,19 @@ export default function Home() {
     sendMessageToLLM(val);
   };
 
-  const isInteractive = (id: string) => messages[messages.length - 1].id === id;
+  const selectLanguage = (langId: string) => {
+    setPreferredLanguage(langId);
+    setMessages([
+      { id: Date.now().toString(), role: 'senura', type: 'text', content: LOCALIZED_GREETINGS[langId] || LOCALIZED_GREETINGS.english }
+    ]);
+  };
+
+  const isInteractive = (id: string) => messages.length > 0 && messages[messages.length - 1].id === id;
 
   // We should only show quick replies when the chat is active and not showing rich UI flows yet
-  const showQuickReplies = !isTyping && ['text'].includes(messages[messages.length - 1].type);
+  const showQuickReplies = !isTyping && messages.length > 0 && ['text'].includes(messages[messages.length - 1].type);
+
+  if (!isLoaded) return null;
 
   if (!preferredLanguage) {
     return (
@@ -222,7 +279,7 @@ export default function Home() {
                 key={lang.id}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => setPreferredLanguage(lang.id)}
+                onClick={() => selectLanguage(lang.id)}
                 className="flex items-center p-4 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-amber-400/50 rounded-2xl transition-all w-full text-left group backdrop-blur-sm"
               >
                 <span className="text-2xl mr-4">{lang.icon}</span>
@@ -349,7 +406,7 @@ export default function Home() {
           
           {showQuickReplies && (
             <div className="flex gap-2 overflow-x-auto scrollbar-hide px-1 pb-1">
-              {QUICK_REPLIES.map(reply => (
+              {(LOCALIZED_QUICK_REPLIES[preferredLanguage] || LOCALIZED_QUICK_REPLIES.english).map(reply => (
                 <button
                   key={reply}
                   onClick={() => sendMessageToLLM(reply)}
