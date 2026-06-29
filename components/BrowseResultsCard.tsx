@@ -54,7 +54,7 @@ export default function BrowseResultsCard({
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="w-full max-w-[340px] sm:max-w-sm mt-2"
+      className="w-full mt-2"
     >
       {/* Header */}
       <div className="mb-3">
@@ -63,22 +63,31 @@ export default function BrowseResultsCard({
         </p>
       </div>
 
-      {/* Product Grid */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* Product Grid / Carousel */}
+      <div 
+        className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide md:grid md:grid-cols-2 gap-3 pb-2 overscroll-contain"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
         {visibleProducts.map((product, index) => (
           <div
             key={`${product.id ?? product.name}-${index}`}
             onClick={() => onProductSelect(product)}
-            className="bg-[#0f1729] rounded-2xl overflow-hidden border border-white/10 cursor-pointer hover:border-amber-400/40 hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] flex flex-col"
+            className="flex-shrink-0 snap-center min-w-[240px] w-[75vw] md:min-w-0 md:w-auto bg-[#0f1729] rounded-2xl overflow-hidden border border-white/10 cursor-pointer hover:border-amber-400/40 hover:scale-[1.02] transition-all duration-200 active:scale-[0.98] flex flex-col"
           >
             {/* Image */}
-            <div className="h-[120px] bg-[#0a0f1e] relative">
+            <div className="aspect-square w-full h-auto bg-slate-800/50 animate-pulse relative">
               {product.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={product.image}
                   alt={product.name}
-                  className="w-full h-full object-contain p-2"
+                  className="w-full h-full object-contain p-2 absolute inset-0 transition-opacity duration-300 opacity-0"
+                  onLoad={(e) => {
+                    const el = e.currentTarget;
+                    el.classList.remove('opacity-0');
+                    if (el.parentElement) el.parentElement.classList.remove('animate-pulse', 'bg-slate-800/50');
+                    if (el.parentElement) el.parentElement.classList.add('bg-[#0a0f1e]');
+                  }}
                   onError={(e) => {
                     e.currentTarget.style.display = "none";
                     if (e.currentTarget.nextElementSibling) {
@@ -87,11 +96,11 @@ export default function BrowseResultsCard({
                   }}
                 />
               ) : (
-                <div className="absolute inset-0 flex items-center justify-center text-3xl">
+                <div className="absolute inset-0 flex items-center justify-center text-5xl bg-[#0a0f1e]">
                   🎁
                 </div>
               )}
-              <div className="hidden absolute inset-0 flex items-center justify-center text-3xl">
+              <div className="hidden absolute inset-0 flex items-center justify-center text-5xl bg-[#0a0f1e]">
                 🎁
               </div>
             </div>

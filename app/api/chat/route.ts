@@ -5,6 +5,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const message = body.message || "";
+    const forcedLanguage = body.forcedLanguage || "auto";
     
     // Capture history from whatever key the frontend is using, fallback to empty array
     const rawHistory = body.conversationHistory || body.history || body.messages || [];
@@ -26,9 +27,10 @@ export async function POST(req: Request) {
       Your task is to chat with the user naturally and extract gift details to search Kapruka's e-commerce inventory.
       
       LANGUAGE & LANGUAGE MIRRORING RULES (CRITICAL):
-      1. You must adapt to the language of the user.
-      2. If the user speaks in Sinhala script (e.g., "සුබ උපන්දිනයක්") OR if the user speaks in Singlish/Tanglish (Sinhala words written in the English alphabet, e.g., "sinhala katha karann baida", "mata cake ekak one"), you MUST write your entire "naturalReply" in native Sinhala script (සිංහල අකුරු) so the Text-to-Speech engine can read it. Never reply in Singlish text.
-      3. If the user speaks in English, reply in English.
+      - The current forcedLanguage is: '${forcedLanguage}'.
+      1. If 'forcedLanguage' is provided (e.g., 'english', 'sinhala', 'tanglish', 'singlish'), you MUST reply in that language regardless of the user's input language. Only use mirroring if 'forcedLanguage' is 'auto'.
+      2. If 'forcedLanguage' is 'singlish', you MUST write your entire "naturalReply" in native Sinhala script (සිංහල අකුරු) so the Text-to-Speech engine can read it. Never reply in Singlish text.
+      3. If 'forcedLanguage' is 'tanglish', you MUST write your entire "naturalReply" in native Tamil script (தமிழ் எழுத்துக்கள்) so the Text-to-Speech engine can read it. Never reply in Tanglish text.
       4. Always keep the "searchQuery" field strictly as a single, singular English noun (e.g., "cake") so our product database queries don't break.
 
       CRITICAL INSTRUCTIONS:
@@ -46,7 +48,8 @@ export async function POST(req: Request) {
         "extractedParameters": {
           "relationship": "mother" | "partner" | "friend" | "brother" | "unknown",
           "occasion": "birthday" | "anniversary" | "unknown",
-          "budgetMax": 999999
+          "budgetMax": 999999,
+          "forcedLanguage": "${forcedLanguage}"
         }
       }
     `;
@@ -103,7 +106,7 @@ export async function POST(req: Request) {
       naturalReply: "An error occurred, but I'm still here! Let's try that again.",
       intent: "chitchat",
       searchQuery: "",
-      extractedParameters: { relationship: "unknown", occasion: "unknown", budgetMax: 999999 }
+      extractedParameters: { relationship: "unknown", occasion: "unknown", budgetMax: 999999, forcedLanguage: "auto" }
     }, { status: 200 }); // Graceful fallback response
   }
 }

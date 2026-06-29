@@ -3,7 +3,7 @@
 import CheckoutScreen from "@/components/CheckoutScreen";
 import { playVoice } from "@/components/VoicePlayer";
 import RevealScreen from "@/components/RevealScreen";
-import ChatControls from "@/components/ChatControls";
+import SettingsModal from "@/components/SettingsModal";
 import BrowseResultsCard from "@/components/BrowseResultsCard";
 import ThinkingScreen from "@/components/ThinkingScreen";
 import HelpModal from "@/components/HelpModal";
@@ -105,6 +105,7 @@ export default function Home() {
   const [showSplash, setShowSplash] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
@@ -188,7 +189,7 @@ export default function Home() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history: conversationHistory, message: text, preferredLanguage }),
+        body: JSON.stringify({ history: conversationHistory, message: text, forcedLanguage: preferredLanguage }),
       });
 
       if (!res.ok) throw new Error("API error");
@@ -459,7 +460,13 @@ export default function Home() {
 
   return (
     <>
-    <div className="flex flex-col h-screen bg-[#020817] overflow-hidden relative">
+    <SettingsModal 
+      isOpen={isSettingsOpen} 
+      onClose={() => setIsSettingsOpen(false)} 
+      currentLanguage={preferredLanguage} 
+      onLanguageSelect={setPreferredLanguage} 
+    />
+    <div className="flex flex-col h-dvh bg-[#020817] overflow-hidden relative">
 
       {/* ─── Background: grid ─── */}
       <div
@@ -545,17 +552,17 @@ export default function Home() {
               initial={{ scale: 0, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               onClick={handleProceedToCheckout}
-              className="flex items-center gap-1.5 bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/30 rounded-full px-3 py-1.5 transition-all group"
+              className="flex items-center justify-center gap-1.5 bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/30 rounded-full px-4 min-h-[48px] transition-all duration-200 ease-in-out group"
             >
-              <span className="text-amber-400 text-xs font-bold">🛒 {cart.length}</span>
-              <span className="text-amber-400/80 text-[0.65rem] hidden sm:inline group-hover:text-amber-300 transition-colors">Checkout →</span>
+              <span className="text-amber-400 text-sm font-bold">🛒 {cart.length}</span>
+              <span className="text-amber-400/80 text-xs hidden sm:inline group-hover:text-amber-300 transition-colors">Checkout →</span>
             </motion.button>
           )}
           {messages.length > 0 && (
             <button
               onClick={handleClearChat}
               title="Clear chat"
-              className="flex items-center gap-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-full px-3 py-1.5 transition-all text-red-400 text-xs font-semibold"
+              className="flex items-center justify-center gap-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-full px-4 min-h-[48px] transition-all duration-200 ease-in-out text-red-400 text-xs font-semibold"
             >
               <span>🗑️</span>
               <span className="hidden sm:inline">Clear</span>
@@ -563,10 +570,17 @@ export default function Home() {
           )}
           <button
             onClick={() => setShowHelp(true)}
-            className="flex items-center gap-1.5 bg-sky-400/10 hover:bg-sky-400/20 border border-sky-400/30 rounded-full px-3 py-1.5 transition-all text-sky-400 text-xs font-semibold"
+            className="flex items-center justify-center gap-1.5 bg-sky-400/10 hover:bg-sky-400/20 border border-sky-400/30 rounded-full px-4 min-h-[48px] transition-all duration-200 ease-in-out text-sky-400 text-xs font-semibold"
           >
             <span>?</span>
             <span className="hidden sm:inline">How it works</span>
+          </button>
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className="flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 rounded-full w-12 h-12 transition-all duration-200 ease-in-out text-white"
+            title="Settings"
+          >
+            ⚙️
           </button>
           <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider hidden sm:block">
             Powered by Kapruka
@@ -574,15 +588,12 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="w-full max-w-3xl mx-auto px-4 pt-4 z-20 relative flex justify-center">
-        <ChatControls onLanguageChange={(l) => setPreferredLanguage(l)} />
-      </div>
-
       {/* ─── Message List ─── */}
       <div 
         ref={chatContainerRef}
         onScroll={handleChatScroll}
-        className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth px-4 py-2 scrollbar-premium z-10 pb-32"
+        className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth px-4 py-2 scrollbar-premium z-10 pb-32 overscroll-contain"
+        style={{ WebkitOverflowScrolling: 'touch' }}
       >
         <div className="max-w-3xl mx-auto flex flex-col justify-end min-h-full">
           {messages.map((msg) => {
@@ -756,12 +767,15 @@ export default function Home() {
         <div className="max-w-3xl mx-auto flex flex-col gap-2">
           
           {showQuickReplies && (
-            <div className="flex gap-2 overflow-x-auto scrollbar-premium px-1 pb-1">
+            <div 
+              className="flex gap-2 overflow-x-auto scrollbar-premium px-1 pb-1 overscroll-contain"
+              style={{ WebkitOverflowScrolling: 'touch' }}
+            >
               {(LOCALIZED_QUICK_REPLIES[preferredLanguage] || LOCALIZED_QUICK_REPLIES.english).map(reply => (
                 <button
                   key={reply}
                   onClick={() => sendMessageToLLM(reply)}
-                  className="flex-shrink-0 bg-white/5 hover:bg-amber-400/15 border border-white/10 hover:border-amber-400/50 text-slate-300 hover:text-amber-300 text-xs px-3.5 py-1.5 rounded-full transition-all whitespace-nowrap shadow-sm"
+                  className="flex-shrink-0 bg-white/5 hover:bg-amber-400/15 border border-white/10 hover:border-amber-400/50 text-slate-300 hover:text-amber-300 text-sm px-4 min-h-[48px] rounded-full transition-all duration-200 ease-in-out whitespace-nowrap shadow-sm flex items-center justify-center"
                 >
                   {reply}
                 </button>

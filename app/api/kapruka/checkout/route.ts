@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
       }
 
       if (!checkoutUrl) {
-        throw new Error("Could not extract a valid URL from Kapruka MCP response.");
+        throw new Error("Could not extract a valid URL from Kapruka MCP response. Raw: " + (textBlock?.text?.substring(0, 150) || "none"));
       }
 
       console.log("Extracted Kapruka URL:", checkoutUrl);

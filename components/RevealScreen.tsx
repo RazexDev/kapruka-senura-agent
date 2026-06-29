@@ -37,24 +37,32 @@ function HeroImage({ src, alt }: { src: string | null; alt: string }) {
   const [imgError, setImgError] = useState(false);
 
   return (
-    <div className="relative w-full h-[220px] bg-[#0f1729] overflow-hidden">
+    <div className="relative w-full aspect-[4/3] h-auto bg-slate-800/50 animate-pulse overflow-hidden">
       {!imgError && src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={src}
           alt={alt}
-          className="w-full h-full object-contain p-2"
+          className="w-full h-full object-contain p-2 absolute inset-0 transition-opacity duration-300 opacity-0"
+          onLoad={(e) => {
+            const el = e.currentTarget;
+            el.classList.remove('opacity-0');
+            if (el.parentElement) {
+              el.parentElement.classList.remove('animate-pulse', 'bg-slate-800/50');
+              el.parentElement.classList.add('bg-[#0f1729]');
+            }
+          }}
           onError={() => setImgError(true)}
           loading="lazy"
         />
       ) : (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+        <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-3 bg-[#0f1729]">
           <div className="text-5xl">🎁</div>
           <p className="text-slate-500 text-xs text-center px-4">Image not available</p>
         </div>
       )}
       {/* Gradient overlay */}
-      <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-[#0f1729] to-transparent pointer-events-none" />
+      <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-[#0f1729] to-transparent pointer-events-none z-10" />
     </div>
   );
 }
@@ -64,18 +72,26 @@ function AltImage({ src, alt }: { src: string | null; alt: string }) {
   const [imgError, setImgError] = useState(false);
 
   return (
-    <div className="relative h-[100px] w-full bg-[#0a0f1e] overflow-hidden">
+    <div className="relative w-full aspect-square h-auto bg-slate-800/50 animate-pulse overflow-hidden">
       {!imgError && src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={src}
           alt={alt}
-          className="h-full w-full object-contain p-1"
+          className="h-full w-full object-contain p-1 absolute inset-0 transition-opacity duration-300 opacity-0"
+          onLoad={(e) => {
+            const el = e.currentTarget;
+            el.classList.remove('opacity-0');
+            if (el.parentElement) {
+              el.parentElement.classList.remove('animate-pulse', 'bg-slate-800/50');
+              el.parentElement.classList.add('bg-[#0a0f1e]');
+            }
+          }}
           onError={() => setImgError(true)}
           loading="lazy"
         />
       ) : (
-        <div className="w-full h-full flex items-center justify-center">
+        <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-[#0a0f1e]">
           <span className="text-3xl">🎁</span>
         </div>
       )}
@@ -230,7 +246,10 @@ export default function RevealScreen({
             Other ideas for {recipientName}
           </p>
 
-          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+          <div 
+            className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide snap-x snap-mandatory overscroll-contain"
+            style={{ WebkitOverflowScrolling: 'touch' }}
+          >
             {alts.map((alt, index) => (
               <motion.button
                 key={`${alt.name}-${index}`}
@@ -238,7 +257,7 @@ export default function RevealScreen({
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => handleSwap(alt)}
-                className="min-w-[110px] max-w-[110px] flex-shrink-0 bg-[#0a0f1e] rounded-xl border border-white/10 overflow-hidden cursor-pointer hover:border-amber-400/40 transition-all text-left"
+                className="min-w-[110px] max-w-[110px] snap-center flex-shrink-0 bg-[#0a0f1e] rounded-xl border border-white/10 overflow-hidden cursor-pointer hover:border-amber-400/40 transition-all text-left"
               >
                 {/* Each alt has its own AltImage — isolated error state */}
                 <AltImage src={alt.image} alt={alt.name} />

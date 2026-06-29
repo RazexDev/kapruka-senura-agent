@@ -6,7 +6,8 @@ const client = new TextToSpeechClient({
 });
 
 async function synthesizeSpeech(text: string, lang: string): Promise<Buffer> {
-  const isSinhala = lang === 'si' || /[\u0D80-\u0DFF]/.test(text);
+  const isSinhala = lang === 'si' || lang === 'sinhala' || lang === 'singlish' || /[\u0D80-\u0DFF]/.test(text);
+  const isTamil = lang === 'ta' || lang === 'tanglish' || /[\u0B80-\u0BFF]/.test(text);
 
   if (isSinhala) {
     // Google Cloud TTS lacks native support for Sinhala (si-LK).
@@ -21,6 +22,22 @@ async function synthesizeSpeech(text: string, lang: string): Promise<Buffer> {
       throw new Error(`Google Translate TTS failed with status: ${res.status}`);
     }
     return Buffer.from(await res.arrayBuffer());
+  } else if (isTamil) {
+    // For Tamil/Tanglish, use Google Cloud TTS Wavenet voice
+    const [response] = await client.synthesizeSpeech({
+      input: { text },
+      voice: { 
+        languageCode: 'ta-IN', 
+        name: 'ta-IN-Wavenet-A' 
+      },
+      audioConfig: { 
+        audioEncoding: 'MP3' as const,
+        sampleRateHertz: 24000,
+        speakingRate: 1.0,
+        pitch: 0.0,
+      },
+    });
+    return response.audioContent as Buffer;
   } else {
     // For English, use premium Google Cloud TTS Neural2 voice
     const [response] = await client.synthesizeSpeech({
