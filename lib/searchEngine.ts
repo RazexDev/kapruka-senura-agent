@@ -6,45 +6,48 @@ export function classifyIntent(
 ): ConversationIntent {
   const text = message.toLowerCase().trim()
 
-  const browsePatterns = [
-    /what.*available/i, /any.*available/i, /show me/i, /list.*products/i,
-    /what.*do you have/i, /do you have/i, /is there/i, /are there/i,
-    /can i see/i, /let me see/i, /browse/i, /search for/i,
-    /under rs/i, /below rs/i, /price range/i, /how much/i,
-    /cheapest/i, /most expensive/i, /best.*price/i,
-    /what.*types/i, /what.*kinds/i, /what.*options/i, /what.*categories/i,
-    /list of/i, /all.*products/i, /available.*products/i, /currently available/i,
-    /show.*phones/i, /show.*cakes/i, /show.*flowers/i, /show.*chocolate/i,
-    /accessories/i, /devices/i, /products/i, /items/i,
-    /what.*have/i, /do.*have/i, /any.*\?/i,
-  ]
-
-  const giftPatterns = [
-    /gift for/i, /present for/i, /buy for/i, /get for/i,
-    /amma|thaththa|yaluwa|akka|aiya|malli|nangi/i,
-    /mother|father|friend|sister|brother|boss|teacher/i,
-    /birthday gift/i, /anniversary gift/i, /surprise for/i,
-    /something for (my|her|him|them)/i,
-    /aran denna/i, /araganna/i,
-  ]
-
+  // 1. Catch short chitchat first
   const chitchatPatterns = [
     /^(hi|hello|hey|ayubowan|kohomada|kohoma)/i,
-    /^(ok|okay|sure|alright|thanks|thank you|niyamai)/i,
-    /^(yes|no|yeah|nope|yep)/i,
+    /^(ok|okay|sure|alright|thanks|thank you|niyamai|ela)/i,
+    /^(yes|no|yeah|nope|yep|ow|na)/i,
     /how are you/i, /what (is|are) you/i, /who are you/i, /your name/i,
   ]
-
-  if (text.split(' ').length <= 3) {
-    if (chitchatPatterns.some(p => p.test(text))) return 'chitchat'
+  if (text.split(' ').length <= 3 && chitchatPatterns.some(p => p.test(text))) {
+    return 'chitchat'
   }
 
-  const browseScore = browsePatterns.filter(p => p.test(text)).length
-  const giftScore = giftPatterns.filter(p => p.test(text)).length
+  // 2. Check for explicit gift-giving flow setup
+  const giftPatterns = [
+    /gift for/i, /present for/i, /buy for/i, /get for/i,
+    /birthday gift/i, /anniversary gift/i, /surprise for/i
+  ]
+  const isGift = giftPatterns.some(p => p.test(text))
 
-  if (browseScore > 0 && giftScore === 0) return 'browse'
-  if (giftScore > 0 && browseScore === 0) return 'gift'
-  if (giftScore > 0 && browseScore > 0) return 'gift'
+  // 3. Check for explicit browsing / specific products
+  const productPatterns = [
+    /cake/i, /phone/i, /laptop/i, /computer/i, /flower/i, /chocolate/i,
+    /mug/i, /watch/i, /perfume/i, /toy/i, /bag/i, /shoe/i, /dress/i, /saree/i,
+    /hamper/i, /electronics/i, /accessories/i, /device/i
+  ]
+  const browsePatterns = [
+    /what.*available/i, /show me/i, /do you have/i, /search/i, /browse/i,
+    /what.*buy/i, /what.*get/i, /can i buy/i, /price/i, /how much/i,
+    /what are the/i, /more/i, /other/i, /different/i, /else/i
+  ]
+  const isBrowsing = browsePatterns.some(p => p.test(text)) || productPatterns.some(p => p.test(text))
+
+  // ── ROUTING LOGIC ──
+  // If they mention a product, force a search immediately
+  if (isBrowsing) return 'browse' 
+  if (isGift) return 'gift'
+
+  // 4. Fallback to clarify if answering questions in a flow
+  const clarifyPatterns = [
+    /^for my/i, /^budget/i, /^under rs/i, /^he likes/i, /^she likes/i, 
+    /^he is/i, /^she is/i, /^my (brother|sister|mother|father|friend)/i
+  ]
+  if (clarifyPatterns.some(p => p.test(text))) return 'clarify'
 
   const isInGiftFlow = conversationHistory.some(m => 
     m.role === 'assistant' && (
@@ -53,10 +56,10 @@ export function classifyIntent(
       m.content.includes('relationship')
     )
   )
-  if (isInGiftFlow && browseScore === 0) return 'clarify'
 
-  const isShortProductQuery = text.split(' ').length <= 4 && giftScore === 0
-  return isShortProductQuery ? 'browse' : 'gift'
+  if (isInGiftFlow) return 'clarify'
+
+  return 'gift'
 }
 
 // ─── PERSONALITY → SEARCH TERMS ──────────────────────
@@ -111,7 +114,7 @@ export function localSearchEngine(
   message: string,
   conversationHistory: Array<{ role: string; content: string }>
 ): SearchIntent {
-
+  
   // ── Build combined context from FULL history + current message ──
   const currentText = message.toLowerCase()
     .replace(/[^\w\s\u0D80-\u0DFF]/g, ' ')  // keep Sinhala unicode
@@ -124,104 +127,54 @@ export function localSearchEngine(
     .toLowerCase()
     .replace(/\s+/g, ' ')
 
-  // Combined text is used for ALL passes except budget
   const combinedText = `${historyText} ${currentText}`.trim()
-  const combinedWords = combinedText.split(' ')
 
-  // ── Sanitize input for search terms (FIX 1) ──
-  const text = message
-    .toLowerCase()
-    .replace(/[?!.,;:'"]/g, ' ')    // remove punctuation
-    .replace(/\s+/g, ' ')           // normalize spaces
-    .trim()
-
-  // Filter out words that are clearly not product terms:
+  // ── EXTENSIVE STOP WORDS (Removes conversational noise) ──
   const stopWords = new Set([
-    // Question/browse words - not products
-    'what','which','where','when','how','why','who',
-    'is','are','do','does','did','can','could','would',
-    'should','have','has','had','been','being','be',
-    'show','find','get','give','tell','let','make',
-    'available','currently','now','today','here',
-    'any','some','all','every','each','few','many',
-    'monawada','mokada','thiyena','thiyenawa','tiyena',
-    'kohomada','danne','kiyala','inne','inna',
-    'please','thanks','okay','yes','no','ok',
-    'want','need','looking','search','buy','order',
-    // Single chars and very short words
-    'a','an','the','in','on','at','to','of','for',
-    'and','or','but','with','from','by',
+    'what','which','where','when','how','why','who','is','are','do','does','did',
+    'can','could','would','should','have','has','had','been','being','be','show',
+    'find','get','give','tell','let','make','available','currently','now','today',
+    'here','there','any','some','all','every','each','few','many','monawada',
+    'mokada','thiyena','thiyenawa','tiyena','kohomada','danne','kiyala','inne',
+    'inna','please','thanks','okay','yes','no','ok','want','need','looking',
+    'search','buy','order','a','an','the','in','on','at','to','of','for','and',
+    'or','but','with','from','by','i','me','my','that','this','those','these',
+    'it','its','as','like','something','anything','nothing','everything',
+    'recommend','suggest','ideas','options','gifts','gift','present','presents',
+    'item','items','product','products','best','cheap','expensive','good',
+    // Refinement words added below:
+    'more', 'other', 'different', 'else', 'another', 'again'
   ])
 
-  // After splitting into words, filter stop words:
-  const words = text
-    .split(' ')
-    .filter(w => w.length > 3 && !stopWords.has(w))
-
-  const searchTerms: string[] = []
-  searchTerms.push(...words.slice(0, 4))
-
-  const PRODUCT_WORDS_NOT_PERSONALITY = new Set([
-    'earbuds','headphones','earphones','speaker',
-    'watch','smartwatch','fitness band','bottle',
-    'water bottle','laptop','tablet','keyboard',
-    'mouse','camera','phone','mobile',
-    'book','novel','game','gaming',
-    'bag','wallet','shoes','dress','saree',
-    'candle','lamp','plant','pillow','mug',
-    'chocolate','cake','flowers','hamper',
+  // ── CONTEXT WORDS (Removed from search terms so they don't break Kapruka) ──
+  const contextWords = new Set([
+    'amma','ammi','mother','mom','mum','thaththa','father','dad','aiya','malli',
+    'brother','bro','akka','nangi','sister','sis','partner','wife','husband',
+    'girlfriend','boyfriend','gf','bf','yaluwa','friend','bestie','boss','teacher',
+    'birthday','bday','anniversary','wedding','avurudu','graduation','christmas',
+    'xmas','valentine','techy','tech','homebody','foodie','fashionable','trendsetter',
+    'adventurer','bookworm','sporty','traditional','artistic','gamer','fitness'
   ])
 
-  // ── Pass 2: Personality detection ──
-  let detectedPersonality: string | null = null
-  const PERSONALITY_TRIGGERS: Record<string, string[]> = {
-    'techy':       ['techy','tech-savvy','techie'],
-    'tech-lover':  ['tech lover','tech-lover','loves tech'],
-    'homebody':    ['homebody','home body','gedara inna',
-                    'stays home','indoor'],
-    'foodie':      ['foodie','food lover','loves food',
-                    'food enthusiast'],
-    'fashionable': ['fashionable','fashion lover',
-                    'stylish','trendy'],
-    'trendsetter': ['trendsetter','trend setter'],
-    'adventurer':  ['adventurer','adventurous',
-                    'loves travel','traveller'],
-    'bookworm':    ['bookworm','book worm','loves reading',
-                    'avid reader'],
-    'sporty':      ['sporty','athletic','loves sport',
-                    'fitness freak','gym'],
-    'traditional': ['traditional','old fashioned',
-                    'sampradayika'],
-    'artistic':    ['artistic','creative','loves art'],
-    'gamer':       ['gamer','gaming lover','loves games',
-                    'plays games'],
-    'fitness':     ['fitness','workout','loves gym',
-                    'health freak'],
+  // Normalize plurals (Kapruka favors singular words like 'cake' or 'accessory')
+  const normalizeWord = (w: string) => {
+    if (w.endsWith('ies') && w.length > 4) return w.slice(0, -3) + 'y'
+    if (w.endsWith('s') && w.length > 3 && !w.endsWith('ss')) return w.slice(0, -1)
+    return w
   }
 
-  // ONLY match if the EXACT trigger phrase appears
-  // NOT partial word matches
-  for (const [personality, triggers] of Object.entries(PERSONALITY_TRIGGERS)) {
-    const matchedTrigger = triggers.find(t => combinedText.includes(t))
-    
-    if (matchedTrigger) {
-      if (PRODUCT_WORDS_NOT_PERSONALITY.has(matchedTrigger)) {
-        console.log(`Skipping personality "${personality}" — "${matchedTrigger}" is a product word`)
-        continue
-      }
-      
-      detectedPersonality = personality
-      console.log('  Detected personality:', personality)
-      // Add personality search terms
-      const terms = PERSONALITY_SEARCH[personality] ?? []
-      for (const t of terms) {
-        if (!searchTerms.includes(t)) searchTerms.push(t)
-      }
-      break
-    }
-  }
+  // ── Pass 1: Extract EXPLICIT product words ──
+  const cleanWords = message.toLowerCase()
+    .replace(/[?!.,;:'"]/g, ' ')
+    .split(/\s+/)
+    // Notice we removed w.length > 3 to allow words like "toy" and "pc"
+    .filter(w => w.length > 1 && !stopWords.has(w) && !contextWords.has(w)) 
+    .map(normalizeWord)
 
-  // ── Pass 3: Relationship extraction from COMBINED text ──
+  const searchTerms: string[] = [...cleanWords.slice(0, 4)]
+
+  // ── Pass 2: Personality, Relationship, Occasion, Budget ──
+  // Relationship
   const relationshipMap: Record<string, string[]> = {
     'mother':  ['amma', 'ammi', 'ammage', 'mother', 'mom', 'mum'],
     'father':  ['thaththa', 'thaththi', 'thathata', 'thaththata', 'thathage', 'father', 'dad'],
@@ -233,16 +186,14 @@ export function localSearchEngine(
     'teacher': ['teacher', 'miss', 'guru'],
     'self':    ['myself', 'for me'],
   }
-
   let relationship = 'unknown'
   for (const [rel, triggers] of Object.entries(relationshipMap)) {
     if (triggers.some(t => combinedText.includes(t))) {
-      relationship = rel
-      break
+      relationship = rel; break;
     }
   }
 
-  // ── Pass 4: Occasion extraction from COMBINED text ──
+  // Occasion
   const occasionMap: Record<string, string[]> = {
     'birthday':     ['birthday', 'bday', 'piradenam', 'born'],
     'anniversary':  ['anniversary', 'wedding anniversary'],
@@ -254,77 +205,90 @@ export function localSearchEngine(
     'mothers day':  ["mothers day", "mother's day"],
     'fathers day':  ["fathers day", "father's day"],
   }
-
   let occasion = 'unknown'
   for (const [occ, triggers] of Object.entries(occasionMap)) {
     if (triggers.some(t => combinedText.includes(t))) {
-      occasion = occ
-      break
+      occasion = occ; break;
     }
   }
 
-  // ── Pass 5: Add occasion boost terms (only if search terms still sparse) ──
-  if (occasion !== 'unknown' && OCCASION_BOOST[occasion] && searchTerms.length < 2) {
-    for (const t of OCCASION_BOOST[occasion]) {
-      if (!searchTerms.includes(t)) searchTerms.push(t)
+  // Personality
+  let detectedPersonality: string | null = null
+  const PERSONALITY_TRIGGERS: Record<string, string[]> = {
+    'techy':       ['techy','tech-savvy','techie'],
+    'homebody':    ['homebody','home body','gedara inna'],
+    'foodie':      ['foodie','food lover','loves food'],
+    'fashionable': ['fashionable','fashion lover','stylish','trendy'],
+    'trendsetter': ['trendsetter','trend setter'],
+    'adventurer':  ['adventurer','adventurous','loves travel'],
+    'bookworm':    ['bookworm','book worm','loves reading'],
+    'sporty':      ['sporty','athletic','loves sport','gym'],
+    'traditional': ['traditional','old fashioned','sampradayika'],
+    'artistic':    ['artistic','creative','loves art'],
+    'gamer':       ['gamer','gaming lover','loves games'],
+    'fitness':     ['fitness','workout','loves gym'],
+  }
+  for (const [personality, triggers] of Object.entries(PERSONALITY_TRIGGERS)) {
+    if (triggers.some(t => combinedText.includes(t))) {
+      detectedPersonality = personality; break;
     }
   }
 
-  // ── Pass 6: Budget extraction — use ONLY recent messages to avoid stale values ──
+  // Budget
   let budgetMin = 0
   let budgetMax = 999999
-
-  const recentBudgetText = [
-    currentText,
-    ...conversationHistory.slice(-2).map(m => m.content.toLowerCase()),
-  ].join(' ')
-
   const budgetPatterns: [RegExp, (m: RegExpMatchArray) => { min: number; max: number }][] = [
-    [/under\s*(?:rs\.?)?\s*(\d[\d,]*)/i,
-      m => ({ min: 0, max: parseInt(m[1].replace(/,/g, '')) })],
-    [/below\s*(?:rs\.?)?\s*(\d[\d,]*)/i,
-      m => ({ min: 0, max: parseInt(m[1].replace(/,/g, '')) })],
-    [/(?:rs\.?)?\s*(\d[\d,]*)\s*(?:to|-)\s*(?:rs\.?)?\s*(\d[\d,]*)/i,
-      m => ({ min: parseInt(m[1].replace(/,/g, '')), max: parseInt(m[2].replace(/,/g, '')) })],
-    [/budget\s*(?:of|is)?\s*(?:rs\.?)?\s*(\d[\d,]*)/i,
-      m => ({ min: 0, max: parseInt(m[1].replace(/,/g, '')) })],
-    [/(?:rs\.?)?\s*(\d[\d,]+)/i,
-      m => {
-        const n = parseInt(m[1].replace(/,/g, ''))
-        return n > 100
-          ? { min: Math.floor(n * 0.7), max: Math.ceil(n * 1.3) }
-          : { min: 0, max: 999999 }
-      }],
+    [/under\s*(?:rs\.?)?\s*(\d[\d,]*)/i, m => ({ min: 0, max: parseInt(m[1].replace(/,/g, '')) })],
+    [/below\s*(?:rs\.?)?\s*(\d[\d,]*)/i, m => ({ min: 0, max: parseInt(m[1].replace(/,/g, '')) })],
+    [/(?:rs\.?)?\s*(\d[\d,]*)\s*(?:to|-)\s*(?:rs\.?)?\s*(\d[\d,]*)/i, m => ({ min: parseInt(m[1].replace(/,/g, '')), max: parseInt(m[2].replace(/,/g, '')) })],
+    [/budget\s*(?:of|is)?\s*(?:rs\.?)?\s*(\d[\d,]*)/i, m => ({ min: 0, max: parseInt(m[1].replace(/,/g, '')) })],
+    [/(?:rs\.?)?\s*(\d[\d,]+)/i, m => {
+      const n = parseInt(m[1].replace(/,/g, ''))
+      return n > 100 ? { min: Math.floor(n * 0.7), max: Math.ceil(n * 1.3) } : { min: 0, max: 999999 }
+    }],
   ]
-
   for (const [pattern, handler] of budgetPatterns) {
-    const match = recentBudgetText.match(pattern)
+    const match = combinedText.match(pattern)
     if (match) {
-      const result = handler(match)
-      budgetMin = result.min
-      budgetMax = result.max
-      break
+      const result = handler(match); budgetMin = result.min; budgetMax = result.max; break;
     }
   }
 
-  // ── Pass 7: Build fallback terms from relationship ──
+  // ── CRITICAL FIX: Smart Fallback & Boost Logic ──
   const fallbackTerms: string[] = []
-  const relationshipFallbacks: Record<string, string[]> = {
-    'mother':  ['mug', 'saree', 'plant', 'flowers'],
-    'father':  ['watch', 'wallet', 'book', 'perfume'],
-    'brother': ['gaming', 'watch', 'bag', 'phone'],
-    'sister':  ['jewellery', 'bag', 'perfume', 'cosmetics'],
-    'partner': ['flowers', 'chocolate', 'perfume', 'jewellery'],
-    'friend':  ['mug', 'chocolate', 'book', 'hamper'],
-    'boss':    ['hamper', 'watch', 'book'],
-    'teacher': ['book', 'plant', 'mug', 'flowers'],
-  }
-  const relFallbacks = relationshipFallbacks[relationship] ?? ['hamper', 'mug', 'chocolate']
-  for (const t of relFallbacks) {
-    if (!searchTerms.includes(t) && !fallbackTerms.includes(t)) fallbackTerms.push(t)
+  
+  if (searchTerms.length === 0) {
+      // 1. The user DID NOT specify a product (e.g. "gift for my brother")
+      // ONLY THEN do we inject personality, occasion, and relationship fallbacks to give ideas.
+      if (detectedPersonality) {
+          searchTerms.push(...(PERSONALITY_SEARCH[detectedPersonality] || []).slice(0, 2))
+      }
+      if (occasion !== 'unknown' && OCCASION_BOOST[occasion]) {
+          searchTerms.push(...OCCASION_BOOST[occasion].slice(0, 2))
+      }
+      
+      const relationshipFallbacks: Record<string, string[]> = {
+        'mother':  ['mug', 'saree', 'plant', 'flowers'],
+        'father':  ['watch', 'wallet', 'shirt', 'perfume'],
+        'brother': ['gaming', 'watch', 'backpack', 'phone'],
+        'sister':  ['jewellery', 'handbag', 'perfume', 'chocolate'],
+        'partner': ['flowers', 'chocolate', 'perfume', 'watch'],
+        'friend':  ['mug', 'chocolate', 'cake', 'hamper'],
+        'boss':    ['hamper', 'pen', 'notebook'],
+        'teacher': ['book', 'plant', 'mug', 'flowers'],
+      }
+      const relFallbacks = relationshipFallbacks[relationship] ?? ['gift', 'hamper', 'chocolate']
+      fallbackTerms.push(...relFallbacks)
+  } else {
+      // 2. The user ASKED for something specific (e.g. "cakes", "computer accessories")
+      // We DO NOT inject generic terms like "hamper" because Kapruka will search "cakes hamper" and fail.
+      // We simply set a softer fallback of just the first specific word in case the full phrase fails.
+      if (searchTerms.length > 1) {
+          fallbackTerms.push(searchTerms[0])
+      }
   }
 
-  // ── Pass 8: Refinement detection ──
+  // ── Pass 8: Smart Refinement Detection ──
   const refinementPhrases = [
     'something cheaper', 'less expensive', 'budget option',
     'more premium', 'something expensive', 'better option',
@@ -332,69 +296,49 @@ export function localSearchEngine(
     'not that', 'something else', 'change it',
     'try again', 'search again', 'show different',
     'find something cheaper', 'go more premium',
+    'more', 'more please', 'another'
   ]
-  const isRefinement = refinementPhrases.some(p => currentText.includes(p))
+
+  const isRefinement = refinementPhrases.some(p => currentText.includes(p)) || currentText === 'more'
 
   if (isRefinement && searchTerms.length === 0) {
-    // Inherit terms from last assistant message
-    const lastMsg = conversationHistory
+    // Look at the assistant's last message to find the exact quoted term it just searched for.
+    // E.g., 'I showed the user 6 products for "Cakes".'
+    const lastAssistantMsg = conversationHistory
       .filter(m => m.role === 'assistant')
       .slice(-1)[0]?.content ?? ''
-    const inherited = lastMsg.toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 3 && !stopWords.has(w))
-      .slice(0, 4)
-    for (const t of inherited) {
-      if (!searchTerms.includes(t)) searchTerms.push(t)
+
+    const match = lastAssistantMsg.match(/for "([^"]+)"/i)
+    if (match) {
+      const carriedTerm = normalizeWord(match[1].toLowerCase())
+      if (!searchTerms.includes(carriedTerm)) {
+        searchTerms.push(carriedTerm)
+      }
+      console.log(`🧠 Context Retained: Inheriting "${carriedTerm}" from previous search.`)
     }
   }
 
-  // ── Pass 9: Confidence + needsAI ──
-  const hasSpecificProduct = searchTerms.length > 0
-  const hasRelationship = relationship !== 'unknown'
-  const hasOccasion = occasion !== 'unknown'
-  const messageIsVague = currentText.split(' ').length < 3
-
-  let confidence: 'high' | 'medium' | 'low'
+  // Confidence Routing
+  let confidence: 'high' | 'medium' | 'low' = 'medium'
   let needsAI = false
 
-  if (hasSpecificProduct && searchTerms.length >= 2) {
-    confidence = 'high'
-    needsAI = false
-  } else if (hasSpecificProduct || (hasRelationship && hasOccasion)) {
-    confidence = 'medium'
-    needsAI = false
-  } else if (messageIsVague || (!hasSpecificProduct && !hasRelationship)) {
+  if (searchTerms.length > 0) confidence = 'high'
+  else if (relationship !== 'unknown' && occasion !== 'unknown') confidence = 'medium'
+  else {
     confidence = 'low'
-    needsAI = true  // Only truly vague inputs go to Gemini
-  } else {
-    confidence = 'medium'
-    needsAI = false
+    needsAI = true
   }
 
-  const reasoning = [
-    detectedPersonality ? `Personality: ${detectedPersonality}` : '',
-    `Rel: ${relationship}`,
-    `Occ: ${occasion}`,
-    needsAI ? '→ Gemini (low confidence)' : '→ Local engine',
-  ].filter(Boolean).join(' | ')
-
-  console.log('🔍 Local engine:', reasoning)
-  console.log('   Terms:', searchTerms.slice(0, 4))
-  console.log('   Fallbacks:', fallbackTerms.slice(0, 3))
-  console.log('   Needs AI:', needsAI)
-
   return {
-    searchTerms: searchTerms.slice(0, 4),
-    fallbackTerms: fallbackTerms.slice(0, 3),
+    searchTerms,
+    fallbackTerms,
     relationship,
     occasion,
     budgetMin,
     budgetMax,
     confidence,
     needsAI,
-    reasoning,
+    reasoning: `Rel: ${relationship} | Occ: ${occasion} | Terms: [${searchTerms.join(',')}]`,
   }
 }
 

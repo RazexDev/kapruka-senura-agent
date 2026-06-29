@@ -192,17 +192,17 @@ export default function Home() {
       if (!res.ok) throw new Error("API error");
       const data = await res.json();
       
-      const aiMsg: Message = { id: Date.now().toString() + '-s', role: 'senura', type: 'text', content: data.message };
+      const aiMsg: Message = { id: Date.now().toString() + '-s', role: 'senura', type: 'text', content: data.naturalReply || data.message };
       setMessages(prev => [...prev, aiMsg]);
 
-      if (data.status === "ready_to_search" || data.action === "search") {
-        if (data.status === "ready_to_search") {
-          setFinalProfile(data.parameters);
+      if (data.intent === "browse" || data.intent === "gift" || data.searchQuery) {
+        if (data.intent === "gift" && data.extractedParameters) {
+          setFinalProfile(data.extractedParameters);
         }
         setMessages(prev => [...prev, { id: Date.now().toString() + '-t', role: 'senura', type: 'thinking' }]);
         void fetchRecommendation(text, [...conversationHistory, { role: 'user', content: text }]);
       } else {
-        setConversationHistory(prev => [...prev, { role: 'assistant', content: data.message }]);
+        setConversationHistory(prev => [...prev, { role: 'assistant', content: data.naturalReply || data.message }]);
       }
 
     } catch (err) {

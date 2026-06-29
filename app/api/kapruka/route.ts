@@ -254,7 +254,7 @@ async function searchProducts(
         q: plan.q,
         min_price: plan.min_price,
         max_price: plan.max_price,
-        limit: 10,
+        limit: 20,
         currency: "LKR",
         in_stock_only: true,
         sort: "relevance",
@@ -265,8 +265,9 @@ async function searchProducts(
   );
 
   const results = parseSearchResults(mcpResponse);
-  const cleanedResults = results.map(p => ({
+  const cleanedResults = results.map((p, index) => ({
     ...p,
+    id: p.id ? `${p.id}-${index}` : `fallback-${index}`,
     name: decodeProductName(p.name ?? '')
   }));
   console.log("Searching:", plan.q, "→", cleanedResults.length, "results");
@@ -571,59 +572,30 @@ async function handleBrowseRequest(
     ? { min: localIntent.budgetMin, max: localIntent.budgetMax }
     : { min: 0, max: 999999 };
 
-  // ── STAGE 1: Extract raw terms from user input ──────
-  const cleanInput = message
-    .toLowerCase()
-    .replace(/[?!.,;:'"]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  // ── STAGE 1: Construct unified search query ──────
+  const searchQuery = localIntent.searchTerms.length > 0 
+    ? localIntent.searchTerms.join(' ') 
+    : localIntent.fallbackTerms.join(' ');
 
-  const UNIVERSAL_STOP_WORDS = new Set([
-    'what','which','where','when','how','why','who',
-    'show','find','get','tell','give','list','search',
-    'available','currently','now','any','some','all',
-    'have','has','there','these','those','this','that',
-    'are','were','been','being','will','would','could',
-    'please','want','need','looking','want','like',
-    // Sinhala stop words
-    'monawada','mokada','thiyena','thiyenawa','tiyena',
-    'kohomada','danne','kiyala','inne','inna','eka',
-    'mata','oyata','mama','oba','api','wenuwen',
-    'aran','denna','dennam','araganna','hadanna',
-    // Single and double char words
-    'or','to','in','on','at','is','it','me','my',
-    'we','us','do','be','an','as','of','by','up',
-    'hi','ok','yes','no','hey',
-  ])
+  console.log('Constructed search query:', searchQuery);
 
-  // Extract meaningful words from the message
-  const rawTerms = cleanInput
-    .split(/\s+/)
-    .filter(w => 
-      w.length >= 3 &&
-      !UNIVERSAL_STOP_WORDS.has(w) &&
-      !/^\d+$/.test(w)  // not pure number
-    )
-    .slice(0, 4)
+  const sessionId = await initializeMcpSession();
 
-  console.log('Raw user terms:', rawTerms)
+  // ── STAGE 2: Run single query against Kapruka ─
+  const rawResults = await searchProducts(
+    sessionId,
+    { q: searchQuery },
+    2
+  );
 
-  // ── STAGE 2: Run raw terms against Kapruka directly ─
-  const rawResults = await dynamicKaprukSearch(
-    mcpUrl,
-    rawTerms,
-    [],
-    { min: 0, max: 999999 },
-    signal
-  )
+  console.log(`Search found ${rawResults.length} results`);
 
-  console.log(`Raw search found ${rawResults.length} results`)
+  const catalog = await getCatalog();
 
-  // ── STAGE 3: If raw search worked → use it ──────────
+  // ── STAGE 3: If search worked → use it ──────────
   if (rawResults.length >= 2) {
-    console.log('✓ Raw terms worked — skipping catalog')
+    console.log('✓ Search query worked — skipping catalog')
     
-    const catalog = await getCatalog();
     const budgetFiltered = applyBudgetFilter(
       applyBlacklist(rawResults),
       budgetRange
@@ -631,34 +603,30 @@ async function handleBrowseRequest(
     
     const finalResults = budgetFiltered.length > 0 
       ? budgetFiltered 
-      : rawResults.slice(0, 8)
+      : rawResults.slice(0, 20)
     
     const categoryLabel = getCategoryLabel(
-      rawTerms, message, catalog
+      [searchQuery], message, catalog
     )
     
     return buildBrowseResponse(
-      finalResults, rawTerms, categoryLabel, message, mcpUrl
+      finalResults, [searchQuery], categoryLabel, message, mcpUrl
     )
   }
 
-  // ── STAGE 4: Raw search failed → try catalog ────────
-  console.log('Raw terms returned <2 — consulting catalog')
-  const catalog = await getCatalog()
+  // ── STAGE 4: Search failed → try catalog ────────
+  console.log('Search returned <2 — consulting catalog')
+  const cleanInput = message.toLowerCase().replace(/[?!.,;:'"]/g, ' ').trim();
   const catalogTerms = findBestSearchTerms(
     cleanInput, catalog, 3
   )
 
   console.log('Catalog suggested:', catalogTerms)
 
-  const newCatalogTerms = catalogTerms.filter(
-    t => !rawTerms.includes(t)
-  )
-
-  if (newCatalogTerms.length > 0) {
+  if (catalogTerms.length > 0) {
     const catalogResults = await dynamicKaprukSearch(
       mcpUrl,
-      newCatalogTerms,
+      catalogTerms,
       [],
       budgetRange,
       signal
@@ -666,24 +634,24 @@ async function handleBrowseRequest(
     
     if (catalogResults.length > 0) {
       const categoryLabel = getCategoryLabel(
-        newCatalogTerms, message, catalog
+        catalogTerms, message, catalog
       )
       return buildBrowseResponse(
-        catalogResults, newCatalogTerms, 
+        catalogResults, catalogTerms, 
         categoryLabel, message, mcpUrl
       )
     }
   }
 
   // ── STAGE 5: Everything failed → honest empty state ─
-  console.log('All searches failed for:', rawTerms)
+  console.log('All searches failed for:', searchQuery)
   return NextResponse.json({
     mode: 'browse',
     products: [],
     totalFound: 0,
-    searchTermsUsed: rawTerms,
-    category: rawTerms[0] ?? 'products',
-    emptyMessage: `Senura couldn't find "${rawTerms.join(', ')}" on Kapruka right now. Try a different keyword or browse by category?`
+    searchTermsUsed: [searchQuery],
+    category: searchQuery || 'products',
+    emptyMessage: `Senura couldn't find "${searchQuery}" on Kapruka right now. Try a different keyword or browse by category?`
   })
 }
 
@@ -702,7 +670,7 @@ async function buildBrowseResponse(
   }))
   
   const ranked = cleaned
-    .slice(0, 12)
+    .slice(0, 20)
     .map(p => ({
       ...p,
       matchScore: calculateMatchScore(
