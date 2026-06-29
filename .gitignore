@@ -42,3 +42,6 @@ next-env.d.ts
 
 # kapruka cache
 .kapruka-catalog-cache.json
+
+# credentials
+google-credentials.json

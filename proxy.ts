@@ -30,6 +30,7 @@ export function proxy(request: NextRequest) {
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
       "connect-src 'self' https://mcp.kapruka.com",
+      "media-src 'self' blob: data:",
     ].join('; ')
   )
 

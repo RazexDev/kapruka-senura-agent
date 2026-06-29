@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@google-cloud/text-to-speech": "^6.4.1",
     "@google/generative-ai": "^0.24.1",
     "framer-motion": "^12.41.0",
     "lru-cache": "^11.5.1",

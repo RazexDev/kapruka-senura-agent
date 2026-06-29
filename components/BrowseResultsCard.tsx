@@ -16,6 +16,7 @@ type BrowseResultsCardProps = {
   products: Product[];
   category: string;
   totalFound: number;
+  intent?: string;
   onProductSelect: (product: Product) => void;
 };
 
@@ -30,9 +31,16 @@ export default function BrowseResultsCard({
   products,
   category,
   totalFound,
+  intent,
   onProductSelect,
 }: BrowseResultsCardProps) {
   const [visibleCount, setVisibleCount] = useState(6);
+
+  const shouldShowProducts = intent !== 'chitchat' && products && products.length > 0;
+
+  if (!shouldShowProducts) {
+    return null; // Return nothing if we are just chatting or have no products
+  }
 
   const handleShowMore = () => {
     setVisibleCount((prev) => Math.min(prev + 4, products.length, 12));

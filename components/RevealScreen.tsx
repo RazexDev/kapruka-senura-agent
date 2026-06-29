@@ -15,6 +15,7 @@ type ProductSummary = {
 type Recommendation = {
   bestMatch: ProductSummary & { reason: string };
   alternatives: ProductSummary[];
+  intent?: string;
 };
 
 type RevealScreenProps = {
@@ -96,6 +97,14 @@ export default function RevealScreen({
   );
   const [copied, setCopied] = useState(false);
   const [isAdded, setIsAdded] = useState(false);
+
+  const products = [recommendation?.bestMatch, ...(recommendation?.alternatives || [])].filter(Boolean);
+  const intent = recommendation?.intent;
+  const shouldShowProducts = intent !== 'chitchat' && products && products.length > 0;
+
+  if (!shouldShowProducts) {
+    return null; // Return nothing if we are just chatting or have no products
+  }
 
   const currentReason = current.reason || recommendation.bestMatch.reason;
   const giftMessage = `Hey! Got you the "${current.name}" for your ${recipientName.toLowerCase()}'s ${occasion.toLowerCase()}. ${currentReason.split(",")[0]}. Picked this especially for you — hope it makes your day extra special! 💛`;

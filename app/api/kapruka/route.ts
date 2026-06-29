@@ -565,7 +565,8 @@ async function handleBrowseRequest(
   message: string,
   conversationHistory: Array<{role:string,content:string}>,
   mcpUrl: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  intent: string
 ) {
   const localIntent = localSearchEngine(message, conversationHistory);
   const budgetRange = localIntent.budgetMax < 999999
@@ -610,7 +611,7 @@ async function handleBrowseRequest(
     )
     
     return buildBrowseResponse(
-      finalResults, [searchQuery], categoryLabel, message, mcpUrl
+      finalResults, [searchQuery], categoryLabel, message, mcpUrl, intent
     )
   }
 
@@ -638,7 +639,7 @@ async function handleBrowseRequest(
       )
       return buildBrowseResponse(
         catalogResults, catalogTerms, 
-        categoryLabel, message, mcpUrl
+        categoryLabel, message, mcpUrl, intent
       )
     }
   }
@@ -647,6 +648,7 @@ async function handleBrowseRequest(
   console.log('All searches failed for:', searchQuery)
   return NextResponse.json({
     mode: 'browse',
+    intent,
     products: [],
     totalFound: 0,
     searchTermsUsed: [searchQuery],
@@ -661,7 +663,8 @@ async function buildBrowseResponse(
   searchTerms: string[],
   categoryLabel: string,
   originalMessage: string,
-  mcpUrl: string
+  mcpUrl: string,
+  intent: string
 ) {
   const deduped = deduplicateProducts(results)
   const cleaned = deduped.map(p => ({
@@ -696,6 +699,7 @@ async function buildBrowseResponse(
 
   return NextResponse.json({
     mode: 'browse',
+    intent,
     products: [
       ...enriched,
       ...ranked.slice(4)
@@ -746,7 +750,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Parse JSON
-    let body: { recipientProfile?: unknown, message?: string, conversationHistory?: any[] };
+    let body: { recipientProfile?: unknown, message?: string, conversationHistory?: any[], intent?: string, searchQuery?: string };
     try {
       body = JSON.parse(bodyText);
       console.log("Incoming Kapruka Search Params:", body);
@@ -755,6 +759,15 @@ export async function POST(request: NextRequest) {
         { error: "Invalid JSON body" },
         { status: 400, headers: corsHeaders },
       );
+    }
+
+    // GATEKEEPER: If it's just friendly chitchat or no product keywords were found, DO NOT search Kapruka
+    if (body.message && (body.intent === 'chitchat' || !body.searchQuery || body.searchQuery.trim() === '')) {
+      console.log('🤫 Skipping Kapruka search: Intent is chitchat or searchQuery is empty.');
+      return NextResponse.json({
+        products: [],
+        message: "No search required for this conversation flow."
+      });
     }
 
     // 4. Input Validation
@@ -845,7 +858,8 @@ export async function POST(request: NextRequest) {
         body.message ?? '',
         body.conversationHistory ?? [],
         process.env.KAPRUKA_MCP_URL!,
-        new AbortController().signal
+        new AbortController().signal,
+        intent
       );
     }
 
@@ -887,7 +901,7 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await findGiftMatches(cleanProfile);
-    return NextResponse.json(result, { headers: corsHeaders });
+    return NextResponse.json({ ...result, intent }, { headers: corsHeaders });
   } catch (error: any) {
     if (error.message === "AbortError" || error.name === "AbortError") {
       return NextResponse.json(

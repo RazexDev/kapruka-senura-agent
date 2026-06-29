@@ -1,7 +1,9 @@
 "use client";
 
 import CheckoutScreen from "@/components/CheckoutScreen";
+import { playVoice } from "@/components/VoicePlayer";
 import RevealScreen from "@/components/RevealScreen";
+import ChatControls from "@/components/ChatControls";
 import BrowseResultsCard from "@/components/BrowseResultsCard";
 import ThinkingScreen from "@/components/ThinkingScreen";
 import HelpModal from "@/components/HelpModal";
@@ -194,13 +196,14 @@ export default function Home() {
       
       const aiMsg: Message = { id: Date.now().toString() + '-s', role: 'senura', type: 'text', content: data.naturalReply || data.message };
       setMessages(prev => [...prev, aiMsg]);
+      playVoice(data.naturalReply || data.message, preferredLanguage);
 
       if (data.intent === "browse" || data.intent === "gift" || data.searchQuery) {
         if (data.intent === "gift" && data.extractedParameters) {
           setFinalProfile(data.extractedParameters);
         }
         setMessages(prev => [...prev, { id: Date.now().toString() + '-t', role: 'senura', type: 'thinking' }]);
-        void fetchRecommendation(text, [...conversationHistory, { role: 'user', content: text }]);
+        void fetchRecommendation(text, [...conversationHistory, { role: 'user', content: text }], data.intent, data.searchQuery, data.naturalReply || data.message);
       } else {
         setConversationHistory(prev => [...prev, { role: 'assistant', content: data.naturalReply || data.message }]);
       }
@@ -213,14 +216,16 @@ export default function Home() {
     }
   };
 
-  const fetchRecommendation = async (userMessage: string, history: any[]) => {
+  const fetchRecommendation = async (userMessage: string, history: any[], intent?: string, searchQuery?: string, naturalReply?: string) => {
     try {
       const response = await fetch("/api/kapruka", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           message: userMessage,
-          conversationHistory: history
+          conversationHistory: history,
+          intent,
+          searchQuery
         }),
       });
 
@@ -235,6 +240,15 @@ export default function Home() {
           return;
         }
         throw new Error("Failed");
+      }
+
+      if (data.message === "No search required for this conversation flow.") {
+        setMessages(prev => prev.filter(m => m.type !== 'thinking'));
+        setConversationHistory(prev => [
+          ...prev,
+          { role: 'assistant', content: naturalReply || "Skipped search." }
+        ]);
+        return;
       }
 
       if (data.mode === 'browse') {
@@ -311,8 +325,9 @@ export default function Home() {
 
   const selectLanguage = (langId: string) => {
     setPreferredLanguage(langId);
+    const greeting = LOCALIZED_GREETINGS[langId] || LOCALIZED_GREETINGS.english;
     setMessages([
-      { id: Date.now().toString(), role: 'senura', type: 'text', content: LOCALIZED_GREETINGS[langId] || LOCALIZED_GREETINGS.english }
+      { id: Date.now().toString(), role: 'senura', type: 'text', content: greeting }
     ]);
   };
 
@@ -559,11 +574,15 @@ export default function Home() {
         </div>
       </header>
 
+      <div className="w-full max-w-3xl mx-auto px-4 pt-4 z-20 relative flex justify-center">
+        <ChatControls onLanguageChange={(l) => setPreferredLanguage(l)} />
+      </div>
+
       {/* ─── Message List ─── */}
       <div 
         ref={chatContainerRef}
         onScroll={handleChatScroll}
-        className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth px-4 py-6 scrollbar-premium z-10 pb-32"
+        className="flex-1 overflow-y-auto overflow-x-hidden scroll-smooth px-4 py-2 scrollbar-premium z-10 pb-32"
       >
         <div className="max-w-3xl mx-auto flex flex-col justify-end min-h-full">
           {messages.map((msg) => {
@@ -625,6 +644,7 @@ export default function Home() {
                     products={msg.data.products}
                     category={msg.data.category}
                     totalFound={msg.data.totalFound}
+                    intent={msg.data.intent}
                     onProductSelect={(product) => {
                       const fakeData = {
                         bestMatch: { 
