@@ -2,13 +2,14 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
-import { fireConfetti } from "./Confetti";
 
 type ProductSummary = {
+  id: string;
   name: string;
   price: { amount: number | null; currency: string };
   image: string | null;
   url: string;
+  matchScore?: number;
 };
 
 type Recommendation = {
@@ -20,12 +21,65 @@ type RevealScreenProps = {
   recommendation: Recommendation;
   recipientName: string;
   occasion: string;
-  onAddToCart: (product: ProductSummary & { reason?: string }) => void;
+  onAddToCart?: (product: ProductSummary) => void;
 };
 
-function formatPrice(price: { amount: number | null; currency: string }): string {
-  if (price.amount == null) return "Price TBD";
-  return `Rs. ${price.amount.toLocaleString()}`;
+function formatPrice(price: any): string {
+  if (!price) return "Price TBD";
+  const amount = typeof price === 'number' ? price : price.amount;
+  if (amount == null) return "Price TBD";
+  return `Rs. ${Number(amount).toLocaleString()}`;
+}
+
+/** Hero product image — isolated imgError state per mount */
+function HeroImage({ src, alt }: { src: string | null; alt: string }) {
+  const [imgError, setImgError] = useState(false);
+
+  return (
+    <div className="relative w-full h-[220px] bg-[#0f1729] overflow-hidden">
+      {!imgError && src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={alt}
+          className="w-full h-full object-contain p-2"
+          onError={() => setImgError(true)}
+          loading="lazy"
+        />
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+          <div className="text-5xl">🎁</div>
+          <p className="text-slate-500 text-xs text-center px-4">Image not available</p>
+        </div>
+      )}
+      {/* Gradient overlay */}
+      <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-[#0f1729] to-transparent pointer-events-none" />
+    </div>
+  );
+}
+
+/** Alt thumbnail image — isolated imgError state per card */
+function AltImage({ src, alt }: { src: string | null; alt: string }) {
+  const [imgError, setImgError] = useState(false);
+
+  return (
+    <div className="relative h-[100px] w-full bg-[#0a0f1e] overflow-hidden">
+      {!imgError && src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={alt}
+          className="h-full w-full object-contain p-1"
+          onError={() => setImgError(true)}
+          loading="lazy"
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center">
+          <span className="text-3xl">🎁</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function RevealScreen({
@@ -60,9 +114,9 @@ export default function RevealScreen({
   return (
     <div className="w-full flex flex-col">
       <p className="text-amber-400 text-[0.7rem] uppercase tracking-widest mb-2 font-bold">
-        ✦ Senura's Pick for your {recipientName}
+        ✦ Vibe Cart's Pick for your {recipientName}
       </p>
-      
+
       {/* ─── Hero Card ─── */}
       <motion.div
         layout
@@ -70,7 +124,7 @@ export default function RevealScreen({
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
         whileHover={{ scale: 1.02, boxShadow: "0px 0px 20px 0px rgba(251, 191, 36, 0.15)" }}
-        className="rounded-2xl bg-gradient-to-br from-[#0f1729]/90 to-[#1a1040]/90 backdrop-blur-md border border-white/10 hover:border-amber-400/30 overflow-hidden w-full max-w-[320px] sm:max-w-sm transition-colors duration-300 shadow-xl"
+        className="rounded-2xl bg-gradient-to-br from-[#0f1729]/90 to-[#1a1040]/90 backdrop-blur-md border border-white/10 hover:border-amber-400/30 overflow-hidden w-full max-w-full transition-colors duration-300 shadow-xl"
       >
         <AnimatePresence mode="wait">
           <motion.div
@@ -81,20 +135,8 @@ export default function RevealScreen({
             transition={{ duration: 0.3 }}
             className="flex flex-col w-full"
           >
-            {/* Product Image */}
-            <div className="w-full aspect-[4/3] overflow-hidden relative bg-[#0f0f0f]">
-              {current.image ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={current.image}
-                  alt={current.name}
-                  className="w-full h-full object-contain"
-                />
-              ) : (
-                <div className="w-full h-full bg-gradient-to-br from-slate-800 to-[#1a1040]" />
-              )}
-              <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#0f1729]/95 to-transparent pointer-events-none" />
-            </div>
+            {/* Each swap mounts a fresh HeroImage with its own imgError state */}
+            <HeroImage src={current.image} alt={current.name} />
 
             {/* Card Info */}
             <div className="px-4 py-3">
@@ -107,7 +149,17 @@ export default function RevealScreen({
                 <span className="shrink-0 rounded-full bg-amber-400/20 border border-amber-400/30 px-2.5 py-0.5 text-xs font-semibold text-amber-400">
                   {formatPrice(current.price)}
                 </span>
-                <span className="text-xs text-amber-400/80">Match: 97% ✦</span>
+                <span
+                  className={`text-xs font-semibold ${
+                    (current.matchScore ?? 85) >= 90
+                      ? "text-green-400"
+                      : (current.matchScore ?? 85) >= 75
+                      ? "text-amber-400"
+                      : "text-slate-400"
+                  }`}
+                >
+                  Match: {current.matchScore ?? 85}% ✦
+                </span>
               </div>
 
               <p className="text-xs italic text-slate-400 mt-2 line-clamp-3">
@@ -118,30 +170,53 @@ export default function RevealScreen({
         </AnimatePresence>
       </motion.div>
 
-      {/* ─── CTA Button ─── */}
-      <motion.button
-        type="button"
-        disabled={isAdded}
-        onClick={() => {
-          fireConfetti();
-          onAddToCart(current);
-          setIsAdded(true);
-          setTimeout(() => setIsAdded(false), 2200);
-        }}
-        animate={isAdded ? { scale: [1, 1.05, 1] } : {}}
-        transition={{ duration: 0.3 }}
-        className={`mt-3 w-full max-w-[320px] sm:max-w-sm rounded-xl py-3 text-sm font-bold transition-all duration-300 ${
-          isAdded
-            ? "bg-emerald-500 text-white"
-            : "bg-amber-400 text-black hover:opacity-90"
-        }`}
-      >
-        {isAdded ? "✓ Added to Cart!" : `Add to Cart — ${formatPrice(current.price)}`}
-      </motion.button>
+      {/* ─── CTA Buttons ─── */}
+      <div className="mt-3 w-full max-w-full flex gap-2">
+        <motion.button
+          type="button"
+          onClick={() => {
+            if (onAddToCart) {
+              onAddToCart(current);
+              setIsAdded(true);
+              setTimeout(() => setIsAdded(false), 2000);
+            } else {
+              window.open(current.url, '_blank');
+            }
+          }}
+          whileTap={{ scale: 0.97 }}
+          className={`flex-1 rounded-xl py-3 text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 ${
+            isAdded ? 'bg-green-500 text-white' : 'bg-amber-400 text-black hover:opacity-90'
+          }`}
+        >
+          {onAddToCart ? (
+            isAdded ? (
+              <>Added! ✓</>
+            ) : (
+              <>Add to Cart <span className="text-lg leading-none">🛒</span></>
+            )
+          ) : (
+            "View & Order on Kapruka →"
+          )}
+        </motion.button>
+
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.95 }}
+          onClick={handleCopy}
+          title="Copy gift message"
+          className="flex-shrink-0 rounded-xl px-3 py-3 border border-white/10 bg-white/5 hover:border-amber-400/30 transition-all"
+        >
+          {copied ? (
+            <span className="text-emerald-400 text-sm">✓</span>
+          ) : (
+            <span className="text-slate-400 text-sm">📋</span>
+          )}
+        </motion.button>
+      </div>
 
       {/* ─── Alternatives Section ─── */}
       {alts.length > 0 && (
-        <div className="mt-4 max-w-[320px] sm:max-w-sm">
+        <div className="mt-4 max-w-full">
           <p className="text-[0.7rem] uppercase tracking-widest text-slate-400 mb-2">
             Other ideas for {recipientName}
           </p>
@@ -154,20 +229,10 @@ export default function RevealScreen({
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => handleSwap(alt)}
-                className="min-w-[120px] max-w-[120px] flex-shrink-0 bg-[#0f1729] rounded-xl border border-white/10 overflow-hidden cursor-pointer hover:border-amber-400/40 transition-all text-left"
+                className="min-w-[110px] max-w-[110px] flex-shrink-0 bg-[#0a0f1e] rounded-xl border border-white/10 overflow-hidden cursor-pointer hover:border-amber-400/40 transition-all text-left"
               >
-                <div className="relative h-[80px] w-full overflow-hidden">
-                  {alt.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={alt.image}
-                      alt={alt.name}
-                      className="h-full w-full object-contain bg-[#0f0f0f]"
-                    />
-                  ) : (
-                    <div className="h-full w-full bg-gradient-to-br from-slate-800 to-slate-900" />
-                  )}
-                </div>
+                {/* Each alt has its own AltImage — isolated error state */}
+                <AltImage src={alt.image} alt={alt.name} />
                 <p className="text-[0.65rem] text-white truncate px-2 pt-1.5">
                   {alt.name}
                 </p>

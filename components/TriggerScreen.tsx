@@ -35,7 +35,7 @@ export default function TriggerScreen({ onSelect }: TriggerScreenProps) {
       <p className="text-slate-200 mb-4 text-[0.95rem]">
         Who are you celebrating today? <br/>
         <span className="text-slate-400 text-sm mt-1 block">
-          Hi, I'm Senura ✦ Tell me about them and I'll find the perfect gift — no browsing required.
+          Hi, I'm Vibe Cart ✦ Tell me about them and I'll find the perfect gift — no browsing required.
         </span>
       </p>
 

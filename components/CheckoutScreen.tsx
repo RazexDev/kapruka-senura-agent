@@ -24,6 +24,7 @@ type DeliveryDetails = {
   deliveryCity: string;
   phone: string;
   giftMessage: string;
+  specialInstructions: string;
   deliveryDate: string;
 };
 
@@ -40,25 +41,32 @@ type CheckoutScreenProps = {
   cart: CartItem[];
   recipientName: string;
   onConfirm: (details: DeliveryDetails) => void;
+  onRemoveItem?: (id: string) => void;
+  onClearCart?: () => void;
 };
 
-function formatPrice(price: { amount: number | null; currency: string }): string {
-  if (price.amount == null) return "Price TBD";
-  return `Rs. ${price.amount.toLocaleString()}`;
+function formatPrice(price: any): string {
+  if (!price) return "Price TBD";
+  const amount = typeof price === 'number' ? price : price.amount;
+  if (amount == null) return "Price TBD";
+  return `Rs. ${Number(amount).toLocaleString()}`;
 }
 
 export default function CheckoutScreen({
   cart,
   recipientName,
   onConfirm,
+  onRemoveItem,
+  onClearCart,
 }: CheckoutScreenProps) {
-  const getTomorrowSLT = () => {
+  const getMinDeliveryDate = () => {
     const now = new Date();
+    // 24 hours from now in SLT (5.5h offset)
     const sltTime = now.getTime() + (5.5 * 60 * 60 * 1000) + (24 * 60 * 60 * 1000);
-    const tomorrow = new Date(sltTime);
-    return tomorrow.toISOString().split("T")[0];
+    const minDate = new Date(sltTime);
+    return minDate.toISOString().split("T")[0];
   };
-  const minDate = getTomorrowSLT();
+  const minDate = getMinDeliveryDate();
   const [formData, setFormData] = useState<DeliveryDetails>({
     senderName: "",
     senderEmail: "",
@@ -68,6 +76,7 @@ export default function CheckoutScreen({
     deliveryCity: "",
     phone: "",
     giftMessage: "",
+    specialInstructions: "",
     deliveryDate: "",
   });
   const [submitted, setSubmitted] = useState(false);
@@ -83,11 +92,16 @@ export default function CheckoutScreen({
     setError("");
   };
 
-  const handleConfirm = async () => {
+  const handleCheckoutSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const emailRegex = /^[^\s@]+@gmail\.com$/i;
+    if (!emailRegex.test(formData.senderEmail)) {
+      setError("Please enter a valid Gmail address (@gmail.com)");
+      return;
+    }
+
     if (
       !formData.senderName.trim() ||
-      !formData.senderEmail.trim() ||
-      !formData.senderEmail.includes("@") ||
       !formData.recipientName.trim() ||
       !formData.recipientAddress.trim() ||
       !formData.deliveryDistrict.trim() ||
@@ -105,59 +119,78 @@ export default function CheckoutScreen({
     }
     
     setIsSubmitting(true);
-    setError("");
+    setError(null as any);
 
     try {
-      const res = await fetch("/api/kapruka/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cart: cart.map(item => ({ productId: item.id, quantity: item.quantity })),
+      const checkoutPayload = {
+        cart: cart.map(item => ({
+          id: item.id,
+          quantity: item.quantity,
+          price: item.price
+        })),
+        shippingDetails: {
+          name: formData.senderName, // As per requirements mapping
+          phone: formData.phone,
+          address: formData.recipientAddress,
+          city: formData.deliveryCity,
+          district: formData.deliveryDistrict,
+          deliveryDate: formData.deliveryDate,
+          
+          // Additional fields our form has
           senderName: formData.senderName,
           senderEmail: formData.senderEmail,
           recipientName: formData.recipientName,
           recipientAddress: formData.recipientAddress,
           deliveryCity: formData.deliveryCity,
+          deliveryDistrict: formData.deliveryDistrict,
           phoneNumber: formData.phone,
           preferredDeliveryDate: formData.deliveryDate,
           giftMessage: formData.giftMessage,
+          specialInstructions: formData.specialInstructions,
+        }
+      };
+
+      const response = await fetch("/api/kapruka/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "checkout", // Explicit action flag for the backend
+          ...checkoutPayload
         })
       });
 
-      const data = await res.json();
+      const data = await response.json();
 
-      if (!res.ok) {
-        if (data.error && data.error.includes("city_not_deliverable")) {
-          throw new Error("Please double-check your selected district and city. Kapruka does not deliver there.");
-        }
-        throw new Error(data.error || "Checkout failed");
+      if (!response.ok || data.error) {
+        throw new Error(data.error || "Failed to initialize checkout session.");
       }
 
-      if (!data.url || !data.url.startsWith("http") || data.url.includes("pydantic.dev")) {
-        throw new Error("Kapruka did not return a valid checkout session URL.");
+      // Redirect the user directly to the Kapruka payment page
+      if (data.redirectUrl) {
+        setSubmitted(true);
+        onConfirm(formData);
+        fireConfetti();
+        setTimeout(() => {
+          window.location.href = data.redirectUrl;
+        }, 1500);
+      } else {
+        throw new Error("No payment redirect URL returned from server.");
       }
-
-      setSubmitted(true);
-      onConfirm(formData);
-
-      fireConfetti();
-      setTimeout(() => {
-        window.location.href = data.url;
-      }, 1500);
     } catch (err: any) {
-      setError(err.message || "Failed to complete order. Please try again.");
+      console.error("Checkout submission failed:", err);
+      setError(err.message || "An error occurred during checkout. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const inputClass =
-    "w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.85rem] placeholder-slate-600 focus:outline-none focus:border-amber-400/50 focus:bg-white/[0.08] transition-all";
+    "w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-base placeholder-slate-600 focus:outline-none focus:border-amber-400/50 focus:bg-white/[0.08] transition-all";
   const labelClass =
     "text-slate-400 text-[0.65rem] uppercase tracking-wider mb-1 block";
 
   return (
-    <div className="w-full flex flex-col max-w-[340px] sm:max-w-sm">
+    <form onSubmit={handleCheckoutSubmit} className="w-full flex flex-col max-w-[340px] sm:max-w-sm">
       {!submitted ? (
         <>
           <p className="text-slate-200 text-[0.95rem] mb-4">
@@ -166,31 +199,64 @@ export default function CheckoutScreen({
 
           {/* ─── Cart Summary ─── */}
           <div className="mb-4 rounded-xl bg-white/5 border border-white/10 overflow-hidden">
-            <p className="text-[0.65rem] uppercase tracking-wider text-slate-400 px-3 pt-2 pb-1">
-              Your Cart ({cart.length} {cart.length === 1 ? 'item' : 'items'})
-            </p>
-            {cart.map((item, i) => (
-              <div key={item.id + '-' + i} className="flex items-center gap-3 px-3 py-2 border-t border-white/5">
-                <div className="w-10 h-10 rounded-lg bg-[#0f0f0f] overflow-hidden flex-shrink-0">
-                  {item.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={item.image} alt={item.name} className="w-full h-full object-contain" />
-                  ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-900" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-xs truncate">{item.name}</p>
-                  <p className="text-amber-400 text-[0.7rem]">{formatPrice(item.price)} × {item.quantity}</p>
-                </div>
-              </div>
-            ))}
-            <div className="flex justify-between items-center px-3 py-2 border-t border-white/10 bg-white/[0.03]">
-              <span className="text-slate-400 text-xs font-medium">Total</span>
-              <span className="text-amber-400 text-sm font-bold">
-                Rs. {cart.reduce((sum, item) => sum + (item.price.amount || 0) * item.quantity, 0).toLocaleString()}
-              </span>
+            <div className="flex justify-between items-center px-3 pt-2 pb-1 border-b border-white/5">
+              <p className="text-[0.65rem] uppercase tracking-wider text-slate-400">
+                Your Cart ({cart.length} {cart.length === 1 ? 'item' : 'items'})
+              </p>
+              {cart.length > 0 && onClearCart && (
+                <button 
+                  type="button" 
+                  onClick={onClearCart}
+                  className="text-[0.65rem] uppercase tracking-wider text-red-400/80 hover:text-red-400 transition-colors"
+                >
+                  Clear All
+                </button>
+              )}
             </div>
+
+            {cart.length === 0 ? (
+              <div className="px-3 py-6 text-center">
+                <p className="text-slate-400 text-xs">Your cart is empty.</p>
+              </div>
+            ) : (
+              <>
+                {cart.map((item, i) => (
+                  <div key={item.id + '-' + i} className="flex items-center gap-3 px-3 py-2 border-t border-white/5 first:border-t-0">
+                    <div className="w-10 h-10 rounded-lg bg-[#0f0f0f] overflow-hidden flex-shrink-0">
+                      {item.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={item.image} alt={item.name} className="w-full h-full object-contain" />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-900" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-xs truncate pr-2">{item.name}</p>
+                      <p className="text-amber-400 text-[0.7rem]">{formatPrice(item.price)} × {item.quantity}</p>
+                    </div>
+                    {onRemoveItem && (
+                      <button 
+                        type="button" 
+                        onClick={() => onRemoveItem(item.id)}
+                        className="w-6 h-6 rounded-full bg-white/5 hover:bg-red-500/20 text-slate-400 hover:text-red-400 flex flex-shrink-0 items-center justify-center transition-colors"
+                        title="Remove item"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <div className="flex justify-between items-center px-3 py-2 border-t border-white/10 bg-white/[0.03]">
+                  <span className="text-slate-400 text-xs font-medium">Total</span>
+                  <span className="text-amber-400 text-sm font-bold">
+                    Rs. {cart.reduce((sum, item) => {
+                      const amount = typeof item.price === 'number' ? item.price : (item.price?.amount || 0);
+                      return sum + Number(amount) * item.quantity;
+                    }, 0).toLocaleString()}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* ─── Form Fields ─── */}
@@ -313,6 +379,17 @@ export default function CheckoutScreen({
                 className={`${inputClass} resize-none`}
               />
             </div>
+
+            <div>
+              <label className={labelClass}>Special Instructions (optional)</label>
+              <textarea
+                rows={2}
+                placeholder="E.g. Call before delivery, leave at security..."
+                value={formData.specialInstructions}
+                onChange={(e) => updateField("specialInstructions", e.target.value)}
+                className={`${inputClass} resize-none`}
+              />
+            </div>
           </div>
 
           <GreetingCardPreview 
@@ -327,14 +404,19 @@ export default function CheckoutScreen({
           )}
 
           {/* ─── Buttons ─── */}
-          <button
-            type="button"
-            onClick={handleConfirm}
-            disabled={isSubmitting}
-            className={`mt-4 bg-amber-400 text-black font-bold rounded-xl py-3 w-full transition-opacity hover:opacity-90 text-sm ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
-          >
-            {isSubmitting ? "Creating Order..." : "Complete Order on Kapruka →"}
-          </button>
+          {cart.length > 0 ? (
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className={`mt-4 bg-amber-400 text-black font-bold rounded-xl py-3 w-full transition-opacity hover:opacity-90 text-sm ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
+            >
+              {isSubmitting ? "Connecting..." : "Proceed to Kapruka Payment"}
+            </button>
+          ) : (
+            <div className="mt-4 bg-white/5 text-slate-500 font-bold rounded-xl py-3 w-full text-center text-sm cursor-not-allowed border border-white/10">
+              Cart is empty
+            </div>
+          )}
         </>
       ) : (
         /* ─── Success State ─── */
@@ -350,6 +432,6 @@ export default function CheckoutScreen({
           </p>
         </motion.div>
       )}
-    </div>
+    </form>
   );
 }

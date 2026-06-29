@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LRUCache } from "lru-cache";
+import { 
+  getCatalog, 
+  findBestSearchTerms,
+  getCategoryLabel 
+} from '@/lib/kaprukaCatalog';
+import { 
+  classifyIntent, 
+  localSearchEngine 
+} from "@/lib/searchEngine";
+import { calculateMatchScore } from '@/lib/searchEngine';
 
-const MCP_PROTOCOL_VERSION = "2025-03-26";
+
 
 type RecipientProfile = {
   relationship: string;
@@ -21,6 +31,7 @@ type KaprukaProduct = {
 };
 
 type ProductSummary = {
+  id: string;
   name: string;
   price: { amount: number | null; currency: string };
   image: string | null;
@@ -47,30 +58,7 @@ type BudgetRange = {
   max?: number;
 };
 
-type JsonRpcRequest = {
-  jsonrpc: "2.0";
-  id?: number | string;
-  method: string;
-  params?: Record<string, unknown>;
-};
-
-type JsonRpcResponse = {
-  jsonrpc: "2.0";
-  id?: number | string;
-  result?: {
-    content?: Array<{ type: string; text?: string }>;
-    isError?: boolean;
-  };
-  error?: {
-    code: number;
-    message: string;
-  };
-};
-
-const MCP_HEADERS = {
-  "Content-Type": "application/json",
-  Accept: "application/json, text/event-stream",
-} as const;
+import { MCP_PROTOCOL_VERSION, MCP_HEADERS, JsonRpcRequest, JsonRpcResponse, parseMcpResponseBody, postToMcp, initializeMcpSession, callMcpTool } from '@/lib/mcpClient';
 
 const PERSONALITY_QUERIES: Record<string, string[]> = {
   Homebody:       ['pillow', 'lamp', 'cushion', 'plant', 'frame'],
@@ -169,160 +157,6 @@ export async function OPTIONS(request: Request) {
   });
 }
 
-function parseMcpResponseBody(
-  body: string,
-  contentType: string | null,
-  requestId: number,
-): JsonRpcResponse {
-  if (contentType?.includes("text/event-stream")) {
-    for (const line of body.split("\n")) {
-      if (!line.startsWith("data: ")) {
-        continue;
-      }
-
-      try {
-        const message = JSON.parse(line.slice(6)) as JsonRpcResponse;
-        if (message.id === requestId) {
-          return message;
-        }
-      } catch {
-        continue;
-      }
-    }
-
-    throw new Error("No matching JSON-RPC response found in SSE stream");
-  }
-
-  return JSON.parse(body) as JsonRpcResponse;
-}
-
-async function postToMcp(
-  payload: JsonRpcRequest,
-  sessionId?: string,
-): Promise<{ response: Response; body: string }> {
-  const MCP_URL = process.env.KAPRUKA_MCP_URL;
-  if (!MCP_URL) throw new Error("KAPRUKA_MCP_URL not configured");
-
-  const headers = new Headers(MCP_HEADERS);
-
-  if (sessionId) {
-    headers.set("Mcp-Session-Id", sessionId);
-  }
-
-  if (payload.method === "tools/call" && payload.params?.name) {
-    headers.set("Mcp-Method", "tools/call");
-    headers.set("Mcp-Name", String(payload.params.name));
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-
-  try {
-    const response = await fetch(MCP_URL, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    const body = await response.text();
-    return { response, body };
-  } catch (err: any) {
-    if (err.name === "AbortError") {
-      throw new Error("AbortError");
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function initializeMcpSession(): Promise<string> {
-  const { response, body } = await postToMcp({
-    jsonrpc: "2.0",
-    id: 1,
-    method: "initialize",
-    params: {
-      protocolVersion: MCP_PROTOCOL_VERSION,
-      capabilities: {},
-      clientInfo: {
-        name: "senura-kapruka-proxy",
-        version: "1.0.0",
-      },
-    },
-  });
-
-  const sessionId = response.headers.get("mcp-session-id");
-  if (!sessionId) {
-    throw new Error("MCP server did not return a session ID");
-  }
-
-  const initMessage = parseMcpResponseBody(
-    body,
-    response.headers.get("content-type"),
-    1,
-  );
-
-  if (initMessage.error) {
-    throw new Error(initMessage.error.message);
-  }
-
-  await postToMcp(
-    {
-      jsonrpc: "2.0",
-      method: "notifications/initialized",
-    },
-    sessionId,
-  );
-
-  return sessionId;
-}
-
-async function callMcpTool(
-  sessionId: string,
-  tool: string,
-  params: Record<string, unknown>,
-  requestId: number,
-): Promise<JsonRpcResponse> {
-  const { response, body } = await postToMcp(
-    {
-      jsonrpc: "2.0",
-      id: requestId,
-      method: "tools/call",
-      params: {
-        name: tool,
-        arguments: params,
-      },
-    },
-    sessionId,
-  );
-
-  if (!response.ok) {
-    let errorMessage = `MCP server responded with status ${response.status}`;
-
-    try {
-      const errorBody = parseMcpResponseBody(
-        body,
-        response.headers.get("content-type"),
-        requestId,
-      );
-      if (errorBody.error?.message) {
-        errorMessage = errorBody.error.message;
-      }
-    } catch {
-      if (body) {
-        errorMessage = body;
-      }
-    }
-
-    throw new Error(errorMessage);
-  }
-
-  return parseMcpResponseBody(
-    body,
-    response.headers.get("content-type"),
-    requestId,
-  );
-}
 
 function parseBudgetRange(budget: string | null | undefined): BudgetRange {
   if (!budget) return { min: 0, max: 999999 };
@@ -345,8 +179,20 @@ function extractPrice(product: KaprukaProduct): number | null {
 }
 
 function buildSearchQueries(profile: RecipientProfile): string[] {
-  const searchQuery = `${profile.occasion || ""} gift for ${profile.relationship || ""} ${profile.personality || ""}`.trim();
-  return [searchQuery || "gift"];
+  const terms = new Set<string>();
+  
+  if (profile.personality && PERSONALITY_QUERIES[profile.personality]) {
+    PERSONALITY_QUERIES[profile.personality].forEach(t => terms.add(t));
+  }
+  if (profile.occasion && OCCASION_QUERIES[profile.occasion]) {
+    OCCASION_QUERIES[profile.occasion].forEach(t => terms.add(t));
+  }
+  if (profile.relationship && RELATIONSHIP_QUERIES[profile.relationship]) {
+    RELATIONSHIP_QUERIES[profile.relationship].forEach(t => terms.add(t));
+  }
+  
+  const queryList = Array.from(terms);
+  return queryList.length > 0 ? queryList : ["gift"];
 }
 
 function parseSearchResults(mcpResponse: JsonRpcResponse): KaprukaProduct[] {
@@ -374,6 +220,27 @@ function parseSearchResults(mcpResponse: JsonRpcResponse): KaprukaProduct[] {
   }
 }
 
+function decodeProductName(name: string): string {
+  if (!name) return name
+  return name
+    // Decode numeric HTML entities
+    .replace(/n#(\d+);/g, (_, code) => 
+      String.fromCharCode(parseInt(code))
+    )
+    .replace(/&#(\d+);/g, (_, code) => 
+      String.fromCharCode(parseInt(code))
+    )
+    // Decode common named entities  
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    // Clean up any remaining artifacts
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 async function searchProducts(
   sessionId: string,
   plan: SearchPlan,
@@ -398,8 +265,12 @@ async function searchProducts(
   );
 
   const results = parseSearchResults(mcpResponse);
-  console.log("Searching:", plan.q, "→", results.length, "results");
-  return results;
+  const cleanedResults = results.map(p => ({
+    ...p,
+    name: decodeProductName(p.name ?? '')
+  }));
+  console.log("Searching:", plan.q, "→", cleanedResults.length, "results");
+  return cleanedResults;
 }
 
 function deduplicateProducts(products: KaprukaProduct[]): KaprukaProduct[] {
@@ -439,9 +310,10 @@ function isWithinBudget(
 
 function toProductSummary(product: KaprukaProduct): ProductSummary {
   return {
+    id: product.id,
     name: product.name,
     price: product.price,
-    image: product.image_url,
+    image: (product as any).image_url || (product as any).image,
     url: product.url,
   };
 }
@@ -658,6 +530,221 @@ function translateTerm(term: string): string {
   return map[t] || term;
 }
 
+async function dynamicKaprukSearch(
+  mcpUrl: string,
+  terms: string[],
+  fallbacks: string[],
+  budget: BudgetRange,
+  signal: AbortSignal
+): Promise<KaprukaProduct[]> {
+  const sessionId = await initializeMcpSession();
+  let allProducts: KaprukaProduct[] = [];
+  for (const [index, query] of terms.entries()) {
+     const results = await searchProducts(sessionId, { q: query } as any, 2 + index);
+     allProducts.push(...results);
+  }
+  return deduplicateProducts(allProducts);
+}
+
+function applyBlacklist(products: KaprukaProduct[]) {
+  return products.filter((p) => !isBlacklisted(p.name));
+}
+
+function applyBudgetFilter(products: KaprukaProduct[], budget: BudgetRange) {
+  return products.filter((p) => {
+    const price = extractPrice(p);
+    if (price == null) return false;
+    if (budget.min != null && price < budget.min) return false;
+    if (budget.max != null && price > budget.max) return false;
+    return true;
+  });
+}
+
+async function handleBrowseRequest(
+  message: string,
+  conversationHistory: Array<{role:string,content:string}>,
+  mcpUrl: string,
+  signal: AbortSignal
+) {
+  const localIntent = localSearchEngine(message, conversationHistory);
+  const budgetRange = localIntent.budgetMax < 999999
+    ? { min: localIntent.budgetMin, max: localIntent.budgetMax }
+    : { min: 0, max: 999999 };
+
+  // ── STAGE 1: Extract raw terms from user input ──────
+  const cleanInput = message
+    .toLowerCase()
+    .replace(/[?!.,;:'"]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const UNIVERSAL_STOP_WORDS = new Set([
+    'what','which','where','when','how','why','who',
+    'show','find','get','tell','give','list','search',
+    'available','currently','now','any','some','all',
+    'have','has','there','these','those','this','that',
+    'are','were','been','being','will','would','could',
+    'please','want','need','looking','want','like',
+    // Sinhala stop words
+    'monawada','mokada','thiyena','thiyenawa','tiyena',
+    'kohomada','danne','kiyala','inne','inna','eka',
+    'mata','oyata','mama','oba','api','wenuwen',
+    'aran','denna','dennam','araganna','hadanna',
+    // Single and double char words
+    'or','to','in','on','at','is','it','me','my',
+    'we','us','do','be','an','as','of','by','up',
+    'hi','ok','yes','no','hey',
+  ])
+
+  // Extract meaningful words from the message
+  const rawTerms = cleanInput
+    .split(/\s+/)
+    .filter(w => 
+      w.length >= 3 &&
+      !UNIVERSAL_STOP_WORDS.has(w) &&
+      !/^\d+$/.test(w)  // not pure number
+    )
+    .slice(0, 4)
+
+  console.log('Raw user terms:', rawTerms)
+
+  // ── STAGE 2: Run raw terms against Kapruka directly ─
+  const rawResults = await dynamicKaprukSearch(
+    mcpUrl,
+    rawTerms,
+    [],
+    { min: 0, max: 999999 },
+    signal
+  )
+
+  console.log(`Raw search found ${rawResults.length} results`)
+
+  // ── STAGE 3: If raw search worked → use it ──────────
+  if (rawResults.length >= 2) {
+    console.log('✓ Raw terms worked — skipping catalog')
+    
+    const catalog = await getCatalog();
+    const budgetFiltered = applyBudgetFilter(
+      applyBlacklist(rawResults),
+      budgetRange
+    )
+    
+    const finalResults = budgetFiltered.length > 0 
+      ? budgetFiltered 
+      : rawResults.slice(0, 8)
+    
+    const categoryLabel = getCategoryLabel(
+      rawTerms, message, catalog
+    )
+    
+    return buildBrowseResponse(
+      finalResults, rawTerms, categoryLabel, message, mcpUrl
+    )
+  }
+
+  // ── STAGE 4: Raw search failed → try catalog ────────
+  console.log('Raw terms returned <2 — consulting catalog')
+  const catalog = await getCatalog()
+  const catalogTerms = findBestSearchTerms(
+    cleanInput, catalog, 3
+  )
+
+  console.log('Catalog suggested:', catalogTerms)
+
+  const newCatalogTerms = catalogTerms.filter(
+    t => !rawTerms.includes(t)
+  )
+
+  if (newCatalogTerms.length > 0) {
+    const catalogResults = await dynamicKaprukSearch(
+      mcpUrl,
+      newCatalogTerms,
+      [],
+      budgetRange,
+      signal
+    )
+    
+    if (catalogResults.length > 0) {
+      const categoryLabel = getCategoryLabel(
+        newCatalogTerms, message, catalog
+      )
+      return buildBrowseResponse(
+        catalogResults, newCatalogTerms, 
+        categoryLabel, message, mcpUrl
+      )
+    }
+  }
+
+  // ── STAGE 5: Everything failed → honest empty state ─
+  console.log('All searches failed for:', rawTerms)
+  return NextResponse.json({
+    mode: 'browse',
+    products: [],
+    totalFound: 0,
+    searchTermsUsed: rawTerms,
+    category: rawTerms[0] ?? 'products',
+    emptyMessage: `Senura couldn't find "${rawTerms.join(', ')}" on Kapruka right now. Try a different keyword or browse by category?`
+  })
+}
+
+// ── HELPER: Build consistent browse response ─────────
+async function buildBrowseResponse(
+  results: KaprukaProduct[],
+  searchTerms: string[],
+  categoryLabel: string,
+  originalMessage: string,
+  mcpUrl: string
+) {
+  const deduped = deduplicateProducts(results)
+  const cleaned = deduped.map(p => ({
+    ...p,
+    name: decodeProductName(p.name ?? '')
+  }))
+  
+  const ranked = cleaned
+    .slice(0, 12)
+    .map(p => ({
+      ...p,
+      matchScore: calculateMatchScore(
+        {
+          name: p.name,
+          price: extractPrice(p) || 0,
+          stock_level: (p as any).stock_level
+        },
+        {
+          searchTerms,
+          relationship: 'unknown',
+          occasion: 'unknown',
+          budgetMin: 0,
+          budgetMax: 999999
+        }
+      )
+    }))
+    .sort((a, b) => b.matchScore - a.matchScore)
+
+  const enriched = await Promise.all(
+    ranked.slice(0, 4).map(p => enrichProduct(mcpUrl, p))
+  );
+
+  return NextResponse.json({
+    mode: 'browse',
+    products: [
+      ...enriched,
+      ...ranked.slice(4)
+    ].map(p => ({
+      id: p.id,
+      name: p.name,
+      price: typeof p.price === 'number' ? { amount: p.price, currency: "LKR" } : p.price,
+      image: p.image_url || (p as any).image,
+      url: p.url,
+      matchScore: (p as any).matchScore
+    })),
+    totalFound: results.length,
+    searchTermsUsed: searchTerms,
+    category: categoryLabel
+  })
+}
+
 export async function POST(request: NextRequest) {
   const allowedOrigin = getAllowedOrigin(request);
   const corsHeaders = { "Access-Control-Allow-Origin": allowedOrigin };
@@ -683,7 +770,7 @@ export async function POST(request: NextRequest) {
 
     // 2. Request Size Limit
     const bodyText = await request.text();
-    if (bodyText.length > 1024) {
+    if (bodyText.length > 50000) {
       return NextResponse.json(
         { error: "Request too large" },
         { status: 413, headers: corsHeaders },
@@ -691,7 +778,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Parse JSON
-    let body: { recipientProfile?: unknown };
+    let body: { recipientProfile?: unknown, message?: string, conversationHistory?: any[] };
     try {
       body = JSON.parse(bodyText);
       console.log("Incoming Kapruka Search Params:", body);
@@ -703,23 +790,135 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Input Validation
-    if (!validateProfile(body.recipientProfile)) {
+    const isChatMode = typeof body.message === 'string';
+    const isProfileMode = body.recipientProfile !== undefined;
+
+    if (!isChatMode && !isProfileMode) {
       return NextResponse.json(
-        { error: "Invalid profile data" },
-        { status: 400, headers: corsHeaders },
+        { error: 'Request must include message or recipientProfile' },
+        { status: 400, headers: corsHeaders }
       );
     }
 
-    // Strip extra fields & Translate terms
-    const cleanProfile: RecipientProfile = {
-      relationship: translateTerm(String((body.recipientProfile as any).relationship || "")),
-      personality: translateTerm(String((body.recipientProfile as any).vibe || (body.recipientProfile as any).personality || "")),
-      occasion: translateTerm(String((body.recipientProfile as any).occasion || "")),
-      budget: String((body.recipientProfile as any).budget || ""),
-    };
+    if (isChatMode) {
+      // CHAT MODE VALIDATION — lightweight
+      if (typeof body.message !== 'string') {
+        return NextResponse.json(
+          { error: 'message must be a string' },
+          { status: 400, headers: corsHeaders }
+        );
+      }
+      if (body.message.length > 500) {
+        return NextResponse.json(
+          { error: 'Message too long' },
+          { status: 400, headers: corsHeaders }
+        );
+      }
+      if (body.message.trim().length === 0) {
+        return NextResponse.json(
+          { error: 'Message cannot be empty' },
+          { status: 400, headers: corsHeaders }
+        );
+      }
+      if (!Array.isArray(body.conversationHistory)) {
+        body.conversationHistory = [];
+      }
+      // Sanitize conversation history
+      body.conversationHistory = body.conversationHistory
+        .slice(-10) // only last 10 messages
+        .filter((m: any) => 
+          typeof m.role === 'string' && 
+          typeof m.content === 'string' &&
+          m.content.length < 1000
+        )
+        .map((m: any) => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: m.content.trim()
+        }));
+    }
+
+    if (isProfileMode) {
+      // PROFILE MODE VALIDATION — strict enum check (keep as-is)
+      const ALLOWED_RELATIONSHIPS = ['Amma','Thaththa','Partner',
+        'Best Friend','Boss','Teacher','Yourself'];
+      const ALLOWED_PERSONALITIES = ['Homebody','Foodie',
+        'Trendsetter','Traditionalist','Adventurer'];
+      const ALLOWED_OCCASIONS = ['Birthday','Avurudu',
+        'Anniversary','Just Because','Achievement'];
+      const ALLOWED_BUDGETS = ['Under Rs. 2,000',
+        'Rs. 2,000–5,000','Rs. 5,000–15,000','Go all out 💎'];
+
+      const p: any = body.recipientProfile;
+      if (!p || typeof p !== 'object' || Array.isArray(p)) {
+        return NextResponse.json(
+          { error: 'Invalid profile data' },
+          { status: 400, headers: corsHeaders }
+        );
+      }
+      if (!ALLOWED_RELATIONSHIPS.includes(p.relationship) ||
+          !ALLOWED_PERSONALITIES.includes(p.personality || p.vibe) ||
+          !ALLOWED_OCCASIONS.includes(p.occasion) ||
+          !ALLOWED_BUDGETS.includes(p.budget)) {
+        return NextResponse.json(
+          { error: 'Invalid profile values' },
+          { status: 400, headers: corsHeaders }
+        );
+      }
+    }
+
+    const intent = classifyIntent(
+      body.message ?? '',
+      body.conversationHistory ?? []
+    );
+    console.log('Intent classified as:', intent);
+    
+    if (intent === 'browse') {
+      return await handleBrowseRequest(
+        body.message ?? '',
+        body.conversationHistory ?? [],
+        process.env.KAPRUKA_MCP_URL!,
+        new AbortController().signal
+      );
+    }
+
+    let cleanProfile: RecipientProfile = { relationship: 'unknown', personality: '', occasion: 'unknown', budget: '' };
+    
+    if (isChatMode) {
+      const convoHistory = body.conversationHistory ?? [];
+      const localIntent = localSearchEngine(body.message!, convoHistory);
+      
+      // Enhance with catalog
+      const catalog = await getCatalog();
+      const catalogEnhanced = findBestSearchTerms(
+        [
+          localIntent.searchTerms.join(' '),
+          localIntent.relationship,
+          localIntent.occasion
+        ].join(' '),
+        catalog
+      );
+
+      const finalTerms = catalogEnhanced.length > 0
+        ? catalogEnhanced
+        : (localIntent.searchTerms.length > 0 ? localIntent.searchTerms : localIntent.fallbackTerms);
+      
+      cleanProfile = {
+        relationship: localIntent.relationship !== 'unknown' ? localIntent.relationship : 'someone special',
+        personality: finalTerms[0] ?? '',
+        occasion: localIntent.occasion !== 'unknown' ? localIntent.occasion : 'unknown',
+        budget: `${localIntent.budgetMin}-${localIntent.budgetMax}`
+      };
+    } else {
+      // Strip extra fields & Translate terms
+      cleanProfile = {
+        relationship: translateTerm(String((body.recipientProfile as any).relationship || "")),
+        personality: translateTerm(String((body.recipientProfile as any).vibe || (body.recipientProfile as any).personality || "")),
+        occasion: translateTerm(String((body.recipientProfile as any).occasion || "")),
+        budget: String((body.recipientProfile as any).budget || ""),
+      };
+    }
 
     const result = await findGiftMatches(cleanProfile);
-
     return NextResponse.json(result, { headers: corsHeaders });
   } catch (error: any) {
     if (error.message === "AbortError" || error.name === "AbortError") {
