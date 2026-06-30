@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       const outboundPayload = {
         params: {
           cart: cart.map((item: any) => ({
-            product_id: item.id,
+            product_id: String(item.id).split('-')[0],
             quantity: item.quantity || 1
           })),
           recipient: {

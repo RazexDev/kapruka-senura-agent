@@ -64,7 +64,7 @@ export default function BrowseResultsCard({
       </div>
 
       {/* Product Grid / Carousel */}
-      <div 
+      <div
         className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide md:grid md:grid-cols-2 gap-3 pb-2 overscroll-contain"
         style={{ WebkitOverflowScrolling: 'touch' }}
       >
