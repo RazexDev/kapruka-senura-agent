@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import os from 'os'
 const MCP_URL = process.env.KAPRUKA_MCP_URL ?? 'https://mcp.kapruka.com/mcp'
 
 // ── Types ────────────────────────────────────────────
@@ -313,7 +314,7 @@ function inferCategory(
 // ── Public API ────────────────────────────────────────
 
 const CACHE_FILE = path.join(
-  process.cwd(), 
+  os.tmpdir(), 
   '.kapruka-catalog-cache.json'
 )
 
