@@ -1,8 +1,21 @@
 import { TextToSpeechClient } from "@google-cloud/text-to-speech";
 
-// Initialize directly using the JSON object from the env var
+let credentials: any = {};
+try {
+  let envJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}';
+  // Strip accidental outer quotes added by hosting platforms
+  envJson = envJson.replace(/^"|"$/g, '').replace(/^'|'$/g, '');
+  credentials = JSON.parse(envJson);
+  // Re-escape literal \n strings back into real newlines for the private key
+  if (credentials.private_key) {
+    credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+  }
+} catch (e) {
+  console.error("[TTS API] Failed to parse GOOGLE_SERVICE_ACCOUNT_JSON. Ensure it is a valid JSON string.");
+}
+
 const client = new TextToSpeechClient({
-  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}')
+  credentials: Object.keys(credentials).length > 0 ? credentials : undefined
 });
 
 async function synthesizeSpeech(text: string, lang: string): Promise<Buffer> {

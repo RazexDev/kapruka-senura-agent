@@ -12,8 +12,11 @@ export async function POST(req: Request) {
     const history = Array.isArray(rawHistory) ? rawHistory : [];
 
     // 1. API Key Rotation Setup
-    const apiKeysString = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "";
+    let apiKeysString = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "";
+    // Remove accidental outer quotes if deployed directly from .env file
+    apiKeysString = apiKeysString.replace(/^"|"$/g, '').replace(/^'|'$/g, '');
     const apiKeys = apiKeysString.split(',').map(key => key.trim()).filter(Boolean);
+    console.log(`[Chat API] Initialized with ${apiKeys.length} API keys for load balancing.`);
 
     if (apiKeys.length === 0) {
       return NextResponse.json({ error: "No Gemini API keys configured." }, { status: 500 });
